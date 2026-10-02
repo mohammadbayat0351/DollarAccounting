@@ -21,8 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.text.DecimalFormat
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -89,19 +88,189 @@ data class InventoryResult(
 private val money =
     DecimalFormat("#,##0.00")
 
-private val dateFormat =
-    SimpleDateFormat(
-        "yyyy/MM/dd HH:mm",
-        Locale.US
+/* -------------------- JALALI DATE -------------------- */
+
+private fun persianNumber(
+    text: String
+): String {
+
+    val english =
+        "0123456789"
+
+    val persian =
+        "۰۱۲۳۴۵۶۷۸۹"
+
+    var result = text
+
+    english.forEachIndexed {
+            index,
+            char ->
+
+        result =
+            result.replace(
+                char,
+                persian[index]
+            )
+    }
+
+    return result
+}
+
+private fun jalaliDate(
+    timeMillis: Long
+): String {
+
+    val calendar =
+        Calendar.getInstance()
+
+    calendar.timeInMillis =
+        timeMillis
+
+    val gy =
+        calendar.get(
+            Calendar.YEAR
+        )
+
+    val gm =
+        calendar.get(
+            Calendar.MONTH
+        ) + 1
+
+    val gd =
+        calendar.get(
+            Calendar.DAY_OF_MONTH
+        )
+
+    val hour =
+        calendar.get(
+            Calendar.HOUR_OF_DAY
+        )
+
+    val minute =
+        calendar.get(
+            Calendar.MINUTE
+        )
+
+    val gDaysInMonth =
+        intArrayOf(
+            31, 28, 31, 30,
+            31, 30, 31, 31,
+            30, 31, 30, 31
+        )
+
+    val jDaysInMonth =
+        intArrayOf(
+            31, 31, 31, 31,
+            31, 31, 30, 30,
+            30, 30, 30, 29
+        )
+
+    val gy2 =
+        gy - 1600
+
+    val gm2 =
+        gm - 1
+
+    val gd2 =
+        gd - 1
+
+    var gDayNo =
+        365 * gy2 +
+            (gy2 + 3) / 4 -
+            (gy2 + 99) / 100 +
+            (gy2 + 399) / 400
+
+    for (i in 0 until gm2) {
+        gDayNo +=
+            gDaysInMonth[i]
+    }
+
+    if (
+        gm2 > 1 &&
+        (
+            (
+                gy2 % 4 == 0 &&
+                    gy2 % 100 != 0
+                ) ||
+                gy2 % 400 == 0
+            )
+    ) {
+        gDayNo++
+    }
+
+    gDayNo += gd2
+
+    var jDayNo =
+        gDayNo - 79
+
+    val jNp =
+        jDayNo / 12053
+
+    jDayNo %=
+        12053
+
+    var jy =
+        979 +
+            33 * jNp +
+            4 * (jDayNo / 1461)
+
+    jDayNo %=
+        1461
+
+    if (jDayNo >= 366) {
+
+        jy +=
+            (jDayNo - 1) / 365
+
+        jDayNo =
+            (jDayNo - 1) % 365
+    }
+
+    var jm = 0
+
+    while (
+        jm < 11 &&
+        jDayNo >=
+        jDaysInMonth[jm]
+    ) {
+
+        jDayNo -=
+            jDaysInMonth[jm]
+
+        jm++
+    }
+
+    val jd =
+        jDayNo + 1
+
+    jm += 1
+
+    val result =
+        String.format(
+            Locale.US,
+            "%04d/%02d/%02d - %02d:%02d",
+            jy,
+            jm,
+            jd,
+            hour,
+            minute
+        )
+
+    return persianNumber(
+        result
     )
+}
 
 /* -------------------- STORAGE -------------------- */
 
-class AppStorage(context: Context) {
+class AppStorage(
+    context: Context
+) {
 
     /*
-     * این اسم عمداً همان v4 مانده.
-     * تغییرش نده تا اطلاعات فعلی حفظ شود.
+     * مهم:
+     * این نام تغییر نکند.
+     * اطلاعات نسخه فعلی داخل همین حافظه است.
      */
     private val prefs =
         context.getSharedPreferences(
@@ -109,20 +278,29 @@ class AppStorage(context: Context) {
             Context.MODE_PRIVATE
         )
 
-    private fun clean(value: String): String {
+    private fun clean(
+        value: String
+    ): String {
+
         return value
             .replace("|", " ")
             .replace(";;", " ")
             .trim()
     }
 
-    private fun rows(key: String): List<String> {
+    private fun rows(
+        key: String
+    ): List<String> {
 
         val text =
-            prefs.getString(key, "")
-                ?: ""
+            prefs.getString(
+                key,
+                ""
+            ) ?: ""
 
-        return if (text.isBlank()) {
+        return if (
+            text.isBlank()
+        ) {
             emptyList()
         } else {
             text.split(";;")
@@ -134,8 +312,13 @@ class AppStorage(context: Context) {
     ) {
 
         val text =
-            people.joinToString(";;") {
-                "${it.id}|${clean(it.firstName)}|${clean(it.lastName)}"
+            people.joinToString(
+                ";;"
+            ) {
+
+                "${it.id}|" +
+                    "${clean(it.firstName)}|" +
+                    clean(it.lastName)
             }
 
         prefs.edit()
@@ -146,7 +329,8 @@ class AppStorage(context: Context) {
             .apply()
     }
 
-    fun loadPeople(): List<Person> {
+    fun loadPeople():
+        List<Person> {
 
         return rows("people")
             .mapNotNull { row ->
@@ -159,7 +343,8 @@ class AppStorage(context: Context) {
                 }
 
                 val id =
-                    p[0].toLongOrNull()
+                    p[0]
+                        .toLongOrNull()
                         ?: return@mapNotNull null
 
                 Person(
@@ -169,7 +354,8 @@ class AppStorage(context: Context) {
                 )
             }
             .filter {
-                it.fullName.isNotBlank()
+                it.fullName
+                    .isNotBlank()
             }
     }
 
@@ -178,8 +364,12 @@ class AppStorage(context: Context) {
     ) {
 
         val text =
-            products.joinToString(";;") {
-                "${it.id}|${clean(it.name)}"
+            products.joinToString(
+                ";;"
+            ) {
+
+                "${it.id}|" +
+                    clean(it.name)
             }
 
         prefs.edit()
@@ -190,7 +380,8 @@ class AppStorage(context: Context) {
             .apply()
     }
 
-    fun loadProducts(): List<Product> {
+    fun loadProducts():
+        List<Product> {
 
         return rows("products")
             .mapNotNull { row ->
@@ -203,7 +394,8 @@ class AppStorage(context: Context) {
                 }
 
                 val id =
-                    p[0].toLongOrNull()
+                    p[0]
+                        .toLongOrNull()
                         ?: return@mapNotNull null
 
                 Product(
@@ -212,16 +404,20 @@ class AppStorage(context: Context) {
                 )
             }
             .filter {
-                it.name.isNotBlank()
+                it.name
+                    .isNotBlank()
             }
     }
 
     fun savePurchases(
-        purchases: List<Purchase>
+        purchases:
+            List<Purchase>
     ) {
 
         val text =
-            purchases.joinToString(";;") {
+            purchases.joinToString(
+                ";;"
+            ) {
 
                 "${it.id}|" +
                     "${it.personId}|" +
@@ -239,7 +435,8 @@ class AppStorage(context: Context) {
             .apply()
     }
 
-    fun loadPurchases(): List<Purchase> {
+    fun loadPurchases():
+        List<Purchase> {
 
         return rows("purchases")
             .mapNotNull { row ->
@@ -254,26 +451,42 @@ class AppStorage(context: Context) {
                 try {
 
                     Purchase(
-                        id = p[0].toLong(),
-                        personId = p[1].toLong(),
-                        productId = p[2].toLong(),
-                        quantity = p[3].toInt(),
-                        unitPrice = p[4].toDouble(),
-                        createdAt = p[5].toLong()
+                        id =
+                            p[0].toLong(),
+
+                        personId =
+                            p[1].toLong(),
+
+                        productId =
+                            p[2].toLong(),
+
+                        quantity =
+                            p[3].toInt(),
+
+                        unitPrice =
+                            p[4].toDouble(),
+
+                        createdAt =
+                            p[5].toLong()
                     )
 
-                } catch (_: Exception) {
+                } catch (
+                    _: Exception
+                ) {
                     null
                 }
             }
     }
 
     fun savePayments(
-        payments: List<Payment>
+        payments:
+            List<Payment>
     ) {
 
         val text =
-            payments.joinToString(";;") {
+            payments.joinToString(
+                ";;"
+            ) {
 
                 "${it.id}|" +
                     "${it.personId}|" +
@@ -289,7 +502,8 @@ class AppStorage(context: Context) {
             .apply()
     }
 
-    fun loadPayments(): List<Payment> {
+    fun loadPayments():
+        List<Payment> {
 
         return rows("payments")
             .mapNotNull { row ->
@@ -304,13 +518,22 @@ class AppStorage(context: Context) {
                 try {
 
                     Payment(
-                        id = p[0].toLong(),
-                        personId = p[1].toLong(),
-                        amount = p[2].toDouble(),
-                        createdAt = p[3].toLong()
+                        id =
+                            p[0].toLong(),
+
+                        personId =
+                            p[1].toLong(),
+
+                        amount =
+                            p[2].toDouble(),
+
+                        createdAt =
+                            p[3].toLong()
                     )
 
-                } catch (_: Exception) {
+                } catch (
+                    _: Exception
+                ) {
                     null
                 }
             }
@@ -321,7 +544,9 @@ class AppStorage(context: Context) {
     ) {
 
         val text =
-            sales.joinToString(";;") {
+            sales.joinToString(
+                ";;"
+            ) {
 
                 "${it.id}|" +
                     "${clean(it.customer)}|" +
@@ -339,7 +564,8 @@ class AppStorage(context: Context) {
             .apply()
     }
 
-    fun loadSales(): List<Sale> {
+    fun loadSales():
+        List<Sale> {
 
         return rows("sales")
             .mapNotNull { row ->
@@ -354,15 +580,28 @@ class AppStorage(context: Context) {
                 try {
 
                     Sale(
-                        id = p[0].toLong(),
-                        customer = p[1],
-                        productId = p[2].toLong(),
-                        quantity = p[3].toInt(),
-                        unitPrice = p[4].toDouble(),
-                        createdAt = p[5].toLong()
+                        id =
+                            p[0].toLong(),
+
+                        customer =
+                            p[1],
+
+                        productId =
+                            p[2].toLong(),
+
+                        quantity =
+                            p[3].toInt(),
+
+                        unitPrice =
+                            p[4].toDouble(),
+
+                        createdAt =
+                            p[5].toLong()
                     )
 
-                } catch (_: Exception) {
+                } catch (
+                    _: Exception
+                ) {
                     null
                 }
             }
@@ -371,18 +610,6 @@ class AppStorage(context: Context) {
 
 /* -------------------- INVENTORY -------------------- */
 
-/*
- * قلب محاسبات برنامه
- *
- * خرید:
- * موجودی و ارزش موجودی زیاد می‌شود.
- *
- * فروش:
- * تعداد کم می‌شود.
- * ارزش کالا با میانگین همان لحظه کم می‌شود.
- *
- * قیمت فروش هیچ اثری روی میانگین خرید ندارد.
- */
 private fun calculateInventory(
     productId: Long,
     purchases: List<Purchase>,
@@ -402,41 +629,58 @@ private fun calculateInventory(
 
     purchases
         .filter {
-            it.productId == productId
+            it.productId ==
+                productId
         }
         .forEach {
 
             events.add(
                 Event(
-                    time = it.createdAt,
-                    id = it.id,
-                    isPurchase = true,
-                    quantity = it.quantity,
-                    unitPrice = it.unitPrice
+                    time =
+                        it.createdAt,
+
+                    id =
+                        it.id,
+
+                    isPurchase =
+                        true,
+
+                    quantity =
+                        it.quantity,
+
+                    unitPrice =
+                        it.unitPrice
                 )
             )
         }
 
     sales
         .filter {
-            it.productId == productId
+            it.productId ==
+                productId
         }
         .forEach {
 
             events.add(
                 Event(
-                    time = it.createdAt,
-                    id = it.id,
-                    isPurchase = false,
-                    quantity = it.quantity,
-                    unitPrice = it.unitPrice
+                    time =
+                        it.createdAt,
+
+                    id =
+                        it.id,
+
+                    isPurchase =
+                        false,
+
+                    quantity =
+                        it.quantity,
+
+                    unitPrice =
+                        it.unitPrice
                 )
             )
         }
 
-    /*
-     * ترتیب زمانی خیلی مهم است.
-     */
     val sortedEvents =
         events.sortedWith(
             compareBy<Event> {
@@ -450,13 +694,13 @@ private fun calculateInventory(
     var inventoryValue = 0.0
     var average = 0.0
 
-    sortedEvents.forEach { event ->
+    sortedEvents.forEach {
+            event ->
 
-        if (event.isPurchase) {
+        if (
+            event.isPurchase
+        ) {
 
-            /*
-             * ارزش خرید جدید به ارزش موجودی قبلی اضافه می‌شود.
-             */
             val purchaseValue =
                 event.quantity *
                     event.unitPrice
@@ -469,22 +713,21 @@ private fun calculateInventory(
 
             average =
                 if (quantity > 0) {
+
                     inventoryValue /
                         quantity
+
                 } else {
                     0.0
                 }
 
         } else {
 
-            /*
-             * فروش باید با میانگین خرید همان لحظه
-             * از ارزش موجودی کم شود.
-             */
             val quantityToRemove =
-                event.quantity.coerceAtMost(
-                    quantity
-                )
+                event.quantity
+                    .coerceAtMost(
+                        quantity
+                    )
 
             inventoryValue -=
                 quantityToRemove *
@@ -493,7 +736,9 @@ private fun calculateInventory(
             quantity -=
                 quantityToRemove
 
-            if (quantity <= 0) {
+            if (
+                quantity <= 0
+            ) {
 
                 quantity = 0
                 inventoryValue = 0.0
@@ -501,9 +746,6 @@ private fun calculateInventory(
 
             } else {
 
-                /*
-                 * فروش میانگین را تغییر نمی‌دهد.
-                 */
                 average =
                     inventoryValue /
                         quantity
@@ -512,8 +754,10 @@ private fun calculateInventory(
     }
 
     if (
-        inventoryValue < 0.000001
+        inventoryValue <
+        0.000001
     ) {
+
         inventoryValue = 0.0
     }
 
@@ -535,19 +779,6 @@ private fun productQuantity(
         purchases,
         sales
     ).quantity
-}
-
-private fun productAverage(
-    productId: Long,
-    purchases: List<Purchase>,
-    sales: List<Sale>
-): Double {
-
-    return calculateInventory(
-        productId,
-        purchases,
-        sales
-    ).average
 }
 
 private fun personDebt(
@@ -580,7 +811,7 @@ private fun personDebt(
     return bought - paid
 }
 
-/* -------------------- APP -------------------- */
+/* -------------------- MAIN APP -------------------- */
 
 @Composable
 fun DollarAccountingApp(
@@ -651,7 +882,6 @@ fun DollarAccountingApp(
     }
 
     Scaffold(
-
         bottomBar = {
 
             NavigationBar {
@@ -741,7 +971,8 @@ fun DollarAccountingApp(
                         page == "products",
 
                     onClick = {
-                        page = "products"
+                        page =
+                            "products"
                     },
 
                     icon = {
@@ -777,7 +1008,6 @@ fun DollarAccountingApp(
                 )
             }
         }
-
     ) { padding ->
 
         Box(
@@ -793,24 +1023,38 @@ fun DollarAccountingApp(
                 label = "page"
             ) { currentPage ->
 
-                when (currentPage) {
+                when (
+                    currentPage
+                ) {
 
                     "home" -> {
 
                         HomePage(
-                            people = people,
-                            products = products,
-                            purchases = purchases,
-                            payments = payments,
-                            sales = sales
+                            people =
+                                people,
+
+                            products =
+                                products,
+
+                            purchases =
+                                purchases,
+
+                            payments =
+                                payments,
+
+                            sales =
+                                sales
                         )
                     }
 
                     "buy" -> {
 
                         BuyPage(
-                            people = people,
-                            products = products,
+                            people =
+                                people,
+
+                            products =
+                                products,
 
                             onSave = {
                                     person,
@@ -819,7 +1063,8 @@ fun DollarAccountingApp(
                                     price ->
 
                                 val time =
-                                    System.currentTimeMillis()
+                                    System
+                                        .currentTimeMillis()
 
                                 purchases.add(
                                     Purchase(
@@ -842,7 +1087,8 @@ fun DollarAccountingApp(
                                         purchases
                                     )
 
-                                page = "home"
+                                page =
+                                    "home"
                             }
                         )
                     }
@@ -850,9 +1096,14 @@ fun DollarAccountingApp(
                     "sell" -> {
 
                         SellPage(
-                            products = products,
-                            purchases = purchases,
-                            sales = sales,
+                            products =
+                                products,
+
+                            purchases =
+                                purchases,
+
+                            sales =
+                                sales,
 
                             onSave = {
                                     customer,
@@ -861,7 +1112,8 @@ fun DollarAccountingApp(
                                     price ->
 
                                 val time =
-                                    System.currentTimeMillis()
+                                    System
+                                        .currentTimeMillis()
 
                                 sales.add(
                                     Sale(
@@ -879,9 +1131,10 @@ fun DollarAccountingApp(
                                     )
                                 )
 
-                                storage.saveSales(
-                                    sales
-                                )
+                                storage
+                                    .saveSales(
+                                        sales
+                                    )
                             }
                         )
                     }
@@ -889,15 +1142,19 @@ fun DollarAccountingApp(
                     "pay" -> {
 
                         PaymentPage(
-                            people = people,
-                            payments = payments,
+                            people =
+                                people,
+
+                            payments =
+                                payments,
 
                             onSave = {
                                     person,
                                     amount ->
 
                                 val time =
-                                    System.currentTimeMillis()
+                                    System
+                                        .currentTimeMillis()
 
                                 payments.add(
                                     Payment(
@@ -911,9 +1168,10 @@ fun DollarAccountingApp(
                                     )
                                 )
 
-                                storage.savePayments(
-                                    payments
-                                )
+                                storage
+                                    .savePayments(
+                                        payments
+                                    )
                             }
                         )
                     }
@@ -921,10 +1179,17 @@ fun DollarAccountingApp(
                     "products" -> {
 
                         ProductsPage(
-                            products = products,
-                            purchases = purchases,
-                            sales = sales,
-                            storage = storage,
+                            products =
+                                products,
+
+                            purchases =
+                                purchases,
+
+                            sales =
+                                sales,
+
+                            storage =
+                                storage,
 
                             onProductClick = {
 
@@ -940,10 +1205,17 @@ fun DollarAccountingApp(
                     "people" -> {
 
                         PeoplePage(
-                            people = people,
-                            purchases = purchases,
-                            payments = payments,
-                            storage = storage
+                            people =
+                                people,
+
+                            purchases =
+                                purchases,
+
+                            payments =
+                                payments,
+
+                            storage =
+                                storage
                         )
                     }
 
@@ -956,9 +1228,14 @@ fun DollarAccountingApp(
                                         selectedProductId
                                 },
 
-                            people = people,
-                            purchases = purchases,
-                            sales = sales,
+                            people =
+                                people,
+
+                            purchases =
+                                purchases,
+
+                            sales =
+                                sales,
 
                             onBack = {
                                 page =
@@ -1219,10 +1496,11 @@ fun HomePage(
             )
         }
 
-        if (products.isEmpty()) {
+        if (
+            products.isEmpty()
+        ) {
 
             item {
-
                 EmptyCard(
                     "هنوز کالایی تعریف نشده"
                 )
@@ -1246,7 +1524,8 @@ fun HomePage(
 
                 Card(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth(),
 
                     shape =
                         RoundedCornerShape(
@@ -1433,7 +1712,8 @@ fun BuyPage(
 
             OutlinedTextField(
                 value =
-                    person?.fullName
+                    person
+                        ?.fullName
                         ?: "",
 
                 onValueChange = {},
@@ -1457,7 +1737,8 @@ fun BuyPage(
                     personMenu,
 
                 onDismissRequest = {
-                    personMenu = false
+                    personMenu =
+                        false
                 }
             ) {
 
@@ -1492,7 +1773,8 @@ fun BuyPage(
 
             OutlinedTextField(
                 value =
-                    product?.name
+                    product
+                        ?.name
                         ?: "",
 
                 onValueChange = {},
@@ -1689,7 +1971,6 @@ fun SellPage(
         ) {
 
             item {
-
                 EmptyCard(
                     "ابتدا کالا تعریف کنید"
                 )
@@ -1701,7 +1982,8 @@ fun SellPage(
         item {
 
             OutlinedTextField(
-                value = customer,
+                value =
+                    customer,
 
                 onValueChange = {
                     customer = it
@@ -1716,14 +1998,16 @@ fun SellPage(
                 modifier =
                     Modifier.fillMaxWidth(),
 
-                singleLine = true
+                singleLine =
+                    true
             )
         }
 
         item {
 
             ExposedDropdownMenuBox(
-                expanded = menu,
+                expanded =
+                    menu,
 
                 onExpandedChange = {
                     menu = !menu
@@ -1732,7 +2016,8 @@ fun SellPage(
 
                 OutlinedTextField(
                     value =
-                        product?.name
+                        product
+                            ?.name
                             ?: "",
 
                     onValueChange = {},
@@ -1750,7 +2035,8 @@ fun SellPage(
                 )
 
                 ExposedDropdownMenu(
-                    expanded = menu,
+                    expanded =
+                        menu,
 
                     onDismissRequest = {
                         menu = false
@@ -1813,7 +2099,9 @@ fun SellPage(
             }
         }
 
-        if (tooMuch) {
+        if (
+            tooMuch
+        ) {
 
             item {
 
@@ -1856,7 +2144,8 @@ fun SellPage(
                 onClick = {
 
                     if (
-                        customer.isNotBlank() &&
+                        customer
+                            .isNotBlank() &&
                         product != null &&
                         q != null &&
                         q > 0 &&
@@ -1897,7 +2186,9 @@ fun SellPage(
                     )
                 )
 
-                Text("ثبت فروش")
+                Text(
+                    "ثبت فروش"
+                )
             }
         }
 
@@ -1936,9 +2227,10 @@ fun SellPage(
         } else {
 
             items(
-                sales.sortedByDescending {
-                    it.createdAt
-                },
+                sales
+                    .sortedByDescending {
+                        it.createdAt
+                    },
 
                 key = {
                     it.id
@@ -1953,7 +2245,8 @@ fun SellPage(
 
                 Card(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth(),
 
                     shape =
                         RoundedCornerShape(
@@ -1974,7 +2267,8 @@ fun SellPage(
                     ) {
 
                         Text(
-                            soldProduct?.name
+                            soldProduct
+                                ?.name
                                 ?: "کالای نامشخص",
 
                             fontWeight =
@@ -1997,10 +2291,8 @@ fun SellPage(
                         )
 
                         Text(
-                            dateFormat.format(
-                                Date(
-                                    sale.createdAt
-                                )
+                            jalaliDate(
+                                sale.createdAt
                             ),
 
                             style =
@@ -2085,7 +2377,8 @@ fun PaymentPage(
         item {
 
             ExposedDropdownMenuBox(
-                expanded = menu,
+                expanded =
+                    menu,
 
                 onExpandedChange = {
                     menu = !menu
@@ -2094,7 +2387,8 @@ fun PaymentPage(
 
                 OutlinedTextField(
                     value =
-                        person?.fullName
+                        person
+                            ?.fullName
                             ?: "",
 
                     onValueChange = {},
@@ -2114,7 +2408,8 @@ fun PaymentPage(
                 )
 
                 ExposedDropdownMenu(
-                    expanded = menu,
+                    expanded =
+                        menu,
 
                     onDismissRequest = {
                         menu = false
@@ -2157,7 +2452,8 @@ fun PaymentPage(
                 onClick = {
 
                     val a =
-                        amount.toDoubleOrNull()
+                        amount
+                            .toDoubleOrNull()
 
                     if (
                         person != null &&
@@ -2231,9 +2527,10 @@ fun PaymentPage(
         } else {
 
             items(
-                payments.sortedByDescending {
-                    it.createdAt
-                },
+                payments
+                    .sortedByDescending {
+                        it.createdAt
+                    },
 
                 key = {
                     it.id
@@ -2248,7 +2545,8 @@ fun PaymentPage(
 
                 Card(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth(),
 
                     shape =
                         RoundedCornerShape(
@@ -2285,10 +2583,8 @@ fun PaymentPage(
                         )
 
                         Text(
-                            dateFormat.format(
-                                Date(
-                                    payment.createdAt
-                                )
+                            jalaliDate(
+                                payment.createdAt
                             ),
 
                             style =
@@ -2312,10 +2608,18 @@ fun PaymentPage(
 
 @Composable
 fun ProductsPage(
-    products: MutableList<Product>,
-    purchases: List<Purchase>,
-    sales: List<Sale>,
-    storage: AppStorage,
+    products:
+        MutableList<Product>,
+
+    purchases:
+        List<Purchase>,
+
+    sales:
+        List<Sale>,
+
+    storage:
+        AppStorage,
+
     onProductClick:
         (Long) -> Unit
 ) {
@@ -2383,14 +2687,17 @@ fun ProductsPage(
 
                         products.add(
                             Product(
-                                System.currentTimeMillis(),
+                                System
+                                    .currentTimeMillis(),
+
                                 n
                             )
                         )
 
-                        storage.saveProducts(
-                            products
-                        )
+                        storage
+                            .saveProducts(
+                                products
+                            )
 
                         name = ""
                     }
@@ -2465,6 +2772,7 @@ fun ProductsPage(
                         Icon(
                             Icons.Default
                                 .ChevronLeft,
+
                             null
                         )
 
@@ -2509,10 +2817,17 @@ fun ProductsPage(
 
 @Composable
 fun PeoplePage(
-    people: MutableList<Person>,
-    purchases: List<Purchase>,
-    payments: List<Payment>,
-    storage: AppStorage
+    people:
+        MutableList<Person>,
+
+    purchases:
+        List<Purchase>,
+
+    payments:
+        List<Payment>,
+
+    storage:
+        AppStorage
 ) {
 
     var first by remember {
@@ -2589,15 +2904,18 @@ fun PeoplePage(
 
                         people.add(
                             Person(
-                                System.currentTimeMillis(),
+                                System
+                                    .currentTimeMillis(),
+
                                 first.trim(),
                                 last.trim()
                             )
                         )
 
-                        storage.savePeople(
-                            people
-                        )
+                        storage
+                            .savePeople(
+                                people
+                            )
 
                         first = ""
                         last = ""
@@ -2693,7 +3011,9 @@ fun ProductDetailPage(
     onBack: () -> Unit
 ) {
 
-    if (product == null) {
+    if (
+        product == null
+    ) {
 
         EmptyCard(
             "کالا پیدا نشد"
@@ -2716,26 +3036,29 @@ fun ProductDetailPage(
                 it.productId ==
                     product.id
             }
-            .map {
+            .map { purchase ->
 
                 History(
                     id =
-                        "buy_${it.id}",
+                        "buy_${purchase.id}",
 
                     time =
-                        it.createdAt,
+                        purchase.createdAt,
 
                     title =
                         "خرید از ${
-                            people.find { person ->
+                            people.find {
+                                    person ->
+
                                 person.id ==
-                                    it.personId
+                                    purchase.personId
+
                             }?.fullName
                                 ?: "نامشخص"
                         }",
 
                     info =
-                        "${it.quantity} عدد × $${money.format(it.unitPrice)}"
+                        "${purchase.quantity} عدد × $${money.format(purchase.unitPrice)}"
                 )
             } +
 
@@ -2744,20 +3067,20 @@ fun ProductDetailPage(
                     it.productId ==
                         product.id
                 }
-                .map {
+                .map { sale ->
 
                     History(
                         id =
-                            "sale_${it.id}",
+                            "sale_${sale.id}",
 
                         time =
-                            it.createdAt,
+                            sale.createdAt,
 
                         title =
-                            "فروش به ${it.customer}",
+                            "فروش به ${sale.customer}",
 
                         info =
-                            "${it.quantity} عدد × $${money.format(it.unitPrice)}"
+                            "${sale.quantity} عدد × $${money.format(sale.unitPrice)}"
                     )
                 }
 
@@ -2783,7 +3106,8 @@ fun ProductDetailPage(
         item {
 
             IconButton(
-                onClick = onBack
+                onClick =
+                    onBack
             ) {
 
                 Icon(
@@ -2856,9 +3180,10 @@ fun ProductDetailPage(
         } else {
 
             items(
-                history.sortedByDescending {
-                    it.time
-                },
+                history
+                    .sortedByDescending {
+                        it.time
+                    },
 
                 key = {
                     it.id
@@ -2867,7 +3192,8 @@ fun ProductDetailPage(
 
                 Card(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth(),
 
                     shape =
                         RoundedCornerShape(
@@ -2899,10 +3225,8 @@ fun ProductDetailPage(
                         )
 
                         Text(
-                            dateFormat.format(
-                                Date(
-                                    h.time
-                                )
+                            jalaliDate(
+                                h.time
                             ),
 
                             style =
