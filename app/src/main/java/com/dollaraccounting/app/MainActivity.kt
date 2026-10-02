@@ -39,6 +39,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/* -------------------- DATA -------------------- */
+
 data class Person(
     val id: Long,
     val firstName: String,
@@ -78,7 +80,14 @@ data class Sale(
     val createdAt: Long
 )
 
-private val money = DecimalFormat("#,##0.00")
+data class InventoryResult(
+    val quantity: Int,
+    val average: Double,
+    val value: Double
+)
+
+private val money =
+    DecimalFormat("#,##0.00")
 
 private val dateFormat =
     SimpleDateFormat(
@@ -86,11 +95,14 @@ private val dateFormat =
         Locale.US
     )
 
+/* -------------------- STORAGE -------------------- */
+
 class AppStorage(context: Context) {
 
-    // مهم:
-    // اسم حافظه را تغییر نده.
-    // دیتای نسخه فعلی داخل همین v4 قرار دارد.
+    /*
+     * این اسم عمداً همان v4 مانده.
+     * تغییرش نده تا اطلاعات فعلی حفظ شود.
+     */
     private val prefs =
         context.getSharedPreferences(
             "dollar_accounting_v4",
@@ -107,7 +119,8 @@ class AppStorage(context: Context) {
     private fun rows(key: String): List<String> {
 
         val text =
-            prefs.getString(key, "") ?: ""
+            prefs.getString(key, "")
+                ?: ""
 
         return if (text.isBlank()) {
             emptyList()
@@ -126,7 +139,10 @@ class AppStorage(context: Context) {
             }
 
         prefs.edit()
-            .putString("people", text)
+            .putString(
+                "people",
+                text
+            )
             .apply()
     }
 
@@ -135,17 +151,19 @@ class AppStorage(context: Context) {
         return rows("people")
             .mapNotNull { row ->
 
-                val p = row.split("|")
+                val p =
+                    row.split("|")
 
                 if (p.size < 3) {
                     return@mapNotNull null
                 }
 
-                Person(
-                    id =
-                        p[0].toLongOrNull()
-                            ?: return@mapNotNull null,
+                val id =
+                    p[0].toLongOrNull()
+                        ?: return@mapNotNull null
 
+                Person(
+                    id = id,
                     firstName = p[1],
                     lastName = p[2]
                 )
@@ -165,7 +183,10 @@ class AppStorage(context: Context) {
             }
 
         prefs.edit()
-            .putString("products", text)
+            .putString(
+                "products",
+                text
+            )
             .apply()
     }
 
@@ -174,17 +195,19 @@ class AppStorage(context: Context) {
         return rows("products")
             .mapNotNull { row ->
 
-                val p = row.split("|")
+                val p =
+                    row.split("|")
 
                 if (p.size < 2) {
                     return@mapNotNull null
                 }
 
-                Product(
-                    id =
-                        p[0].toLongOrNull()
-                            ?: return@mapNotNull null,
+                val id =
+                    p[0].toLongOrNull()
+                        ?: return@mapNotNull null
 
+                Product(
+                    id = id,
                     name = p[1]
                 )
             }
@@ -209,7 +232,10 @@ class AppStorage(context: Context) {
             }
 
         prefs.edit()
-            .putString("purchases", text)
+            .putString(
+                "purchases",
+                text
+            )
             .apply()
     }
 
@@ -218,7 +244,8 @@ class AppStorage(context: Context) {
         return rows("purchases")
             .mapNotNull { row ->
 
-                val p = row.split("|")
+                val p =
+                    row.split("|")
 
                 if (p.size < 6) {
                     return@mapNotNull null
@@ -255,7 +282,10 @@ class AppStorage(context: Context) {
             }
 
         prefs.edit()
-            .putString("payments", text)
+            .putString(
+                "payments",
+                text
+            )
             .apply()
     }
 
@@ -264,7 +294,8 @@ class AppStorage(context: Context) {
         return rows("payments")
             .mapNotNull { row ->
 
-                val p = row.split("|")
+                val p =
+                    row.split("|")
 
                 if (p.size < 4) {
                     return@mapNotNull null
@@ -301,7 +332,10 @@ class AppStorage(context: Context) {
             }
 
         prefs.edit()
-            .putString("sales", text)
+            .putString(
+                "sales",
+                text
+            )
             .apply()
     }
 
@@ -310,7 +344,8 @@ class AppStorage(context: Context) {
         return rows("sales")
             .mapNotNull { row ->
 
-                val p = row.split("|")
+                val p =
+                    row.split("|")
 
                 if (p.size < 6) {
                     return@mapNotNull null
@@ -334,58 +369,185 @@ class AppStorage(context: Context) {
     }
 }
 
+/* -------------------- INVENTORY -------------------- */
+
+/*
+ * قلب محاسبات برنامه
+ *
+ * خرید:
+ * موجودی و ارزش موجودی زیاد می‌شود.
+ *
+ * فروش:
+ * تعداد کم می‌شود.
+ * ارزش کالا با میانگین همان لحظه کم می‌شود.
+ *
+ * قیمت فروش هیچ اثری روی میانگین خرید ندارد.
+ */
+private fun calculateInventory(
+    productId: Long,
+    purchases: List<Purchase>,
+    sales: List<Sale>
+): InventoryResult {
+
+    data class Event(
+        val time: Long,
+        val id: Long,
+        val isPurchase: Boolean,
+        val quantity: Int,
+        val unitPrice: Double
+    )
+
+    val events =
+        mutableListOf<Event>()
+
+    purchases
+        .filter {
+            it.productId == productId
+        }
+        .forEach {
+
+            events.add(
+                Event(
+                    time = it.createdAt,
+                    id = it.id,
+                    isPurchase = true,
+                    quantity = it.quantity,
+                    unitPrice = it.unitPrice
+                )
+            )
+        }
+
+    sales
+        .filter {
+            it.productId == productId
+        }
+        .forEach {
+
+            events.add(
+                Event(
+                    time = it.createdAt,
+                    id = it.id,
+                    isPurchase = false,
+                    quantity = it.quantity,
+                    unitPrice = it.unitPrice
+                )
+            )
+        }
+
+    /*
+     * ترتیب زمانی خیلی مهم است.
+     */
+    val sortedEvents =
+        events.sortedWith(
+            compareBy<Event> {
+                it.time
+            }.thenBy {
+                it.id
+            }
+        )
+
+    var quantity = 0
+    var inventoryValue = 0.0
+    var average = 0.0
+
+    sortedEvents.forEach { event ->
+
+        if (event.isPurchase) {
+
+            /*
+             * ارزش خرید جدید به ارزش موجودی قبلی اضافه می‌شود.
+             */
+            val purchaseValue =
+                event.quantity *
+                    event.unitPrice
+
+            inventoryValue +=
+                purchaseValue
+
+            quantity +=
+                event.quantity
+
+            average =
+                if (quantity > 0) {
+                    inventoryValue /
+                        quantity
+                } else {
+                    0.0
+                }
+
+        } else {
+
+            /*
+             * فروش باید با میانگین خرید همان لحظه
+             * از ارزش موجودی کم شود.
+             */
+            val quantityToRemove =
+                event.quantity.coerceAtMost(
+                    quantity
+                )
+
+            inventoryValue -=
+                quantityToRemove *
+                    average
+
+            quantity -=
+                quantityToRemove
+
+            if (quantity <= 0) {
+
+                quantity = 0
+                inventoryValue = 0.0
+                average = 0.0
+
+            } else {
+
+                /*
+                 * فروش میانگین را تغییر نمی‌دهد.
+                 */
+                average =
+                    inventoryValue /
+                        quantity
+            }
+        }
+    }
+
+    if (
+        inventoryValue < 0.000001
+    ) {
+        inventoryValue = 0.0
+    }
+
+    return InventoryResult(
+        quantity = quantity,
+        average = average,
+        value = inventoryValue
+    )
+}
+
 private fun productQuantity(
     productId: Long,
     purchases: List<Purchase>,
     sales: List<Sale>
 ): Int {
 
-    val bought =
-        purchases
-            .filter {
-                it.productId == productId
-            }
-            .sumOf {
-                it.quantity
-            }
-
-    val sold =
+    return calculateInventory(
+        productId,
+        purchases,
         sales
-            .filter {
-                it.productId == productId
-            }
-            .sumOf {
-                it.quantity
-            }
-
-    return bought - sold
+    ).quantity
 }
 
 private fun productAverage(
     productId: Long,
-    purchases: List<Purchase>
+    purchases: List<Purchase>,
+    sales: List<Sale>
 ): Double {
 
-    val list =
-        purchases.filter {
-            it.productId == productId
-        }
-
-    val quantity =
-        list.sumOf {
-            it.quantity
-        }
-
-    if (quantity == 0) {
-        return 0.0
-    }
-
-    val total =
-        list.sumOf {
-            it.quantity * it.unitPrice
-        }
-
-    return total / quantity
+    return calculateInventory(
+        productId,
+        purchases,
+        sales
+    ).average
 }
 
 private fun personDebt(
@@ -397,16 +559,19 @@ private fun personDebt(
     val bought =
         purchases
             .filter {
-                it.personId == personId
+                it.personId ==
+                    personId
             }
             .sumOf {
-                it.quantity * it.unitPrice
+                it.quantity *
+                    it.unitPrice
             }
 
     val paid =
         payments
             .filter {
-                it.personId == personId
+                it.personId ==
+                    personId
             }
             .sumOf {
                 it.amount
@@ -414,6 +579,8 @@ private fun personDebt(
 
     return bought - paid
 }
+
+/* -------------------- APP -------------------- */
 
 @Composable
 fun DollarAccountingApp(
@@ -490,96 +657,120 @@ fun DollarAccountingApp(
             NavigationBar {
 
                 NavigationBarItem(
-                    selected = page == "home",
+                    selected =
+                        page == "home",
+
                     onClick = {
                         page = "home"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.Home,
                             null
                         )
                     },
+
                     label = {
                         Text("خانه")
                     }
                 )
 
                 NavigationBarItem(
-                    selected = page == "buy",
+                    selected =
+                        page == "buy",
+
                     onClick = {
                         page = "buy"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.ShoppingCart,
                             null
                         )
                     },
+
                     label = {
                         Text("خرید")
                     }
                 )
 
                 NavigationBarItem(
-                    selected = page == "sell",
+                    selected =
+                        page == "sell",
+
                     onClick = {
                         page = "sell"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.PointOfSale,
                             null
                         )
                     },
+
                     label = {
                         Text("فروش")
                     }
                 )
 
                 NavigationBarItem(
-                    selected = page == "pay",
+                    selected =
+                        page == "pay",
+
                     onClick = {
                         page = "pay"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.Payments,
                             null
                         )
                     },
+
                     label = {
                         Text("پرداخت")
                     }
                 )
 
                 NavigationBarItem(
-                    selected = page == "products",
+                    selected =
+                        page == "products",
+
                     onClick = {
                         page = "products"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.Inventory2,
                             null
                         )
                     },
+
                     label = {
                         Text("کالا")
                     }
                 )
 
                 NavigationBarItem(
-                    selected = page == "people",
+                    selected =
+                        page == "people",
+
                     onClick = {
                         page = "people"
                     },
+
                     icon = {
                         Icon(
                             Icons.Default.People,
                             null
                         )
                     },
+
                     label = {
                         Text("اشخاص")
                     }
@@ -615,50 +806,6 @@ fun DollarAccountingApp(
                         )
                     }
 
-                    "people" -> {
-
-                        PeoplePage(
-                            people = people,
-                            purchases = purchases,
-                            payments = payments,
-                            storage = storage
-                        )
-                    }
-
-                    "products" -> {
-
-                        ProductsPage(
-                            products = products,
-                            purchases = purchases,
-                            sales = sales,
-                            storage = storage,
-                            onProductClick = {
-
-                                selectedProductId = it
-                                page = "productDetail"
-                            }
-                        )
-                    }
-
-                    "productDetail" -> {
-
-                        ProductDetailPage(
-                            product =
-                                products.find {
-                                    it.id ==
-                                        selectedProductId
-                                },
-
-                            people = people,
-                            purchases = purchases,
-                            sales = sales,
-
-                            onBack = {
-                                page = "products"
-                            }
-                        )
-                    }
-
                     "buy" -> {
 
                         BuyPage(
@@ -677,17 +824,23 @@ fun DollarAccountingApp(
                                 purchases.add(
                                     Purchase(
                                         id = time,
-                                        personId = person.id,
-                                        productId = product.id,
-                                        quantity = quantity,
-                                        unitPrice = price,
-                                        createdAt = time
+                                        personId =
+                                            person.id,
+                                        productId =
+                                            product.id,
+                                        quantity =
+                                            quantity,
+                                        unitPrice =
+                                            price,
+                                        createdAt =
+                                            time
                                     )
                                 )
 
-                                storage.savePurchases(
-                                    purchases
-                                )
+                                storage
+                                    .savePurchases(
+                                        purchases
+                                    )
 
                                 page = "home"
                             }
@@ -713,19 +866,22 @@ fun DollarAccountingApp(
                                 sales.add(
                                     Sale(
                                         id = time,
-                                        customer = customer,
-                                        productId = product.id,
-                                        quantity = quantity,
-                                        unitPrice = price,
-                                        createdAt = time
+                                        customer =
+                                            customer,
+                                        productId =
+                                            product.id,
+                                        quantity =
+                                            quantity,
+                                        unitPrice =
+                                            price,
+                                        createdAt =
+                                            time
                                     )
                                 )
 
                                 storage.saveSales(
                                     sales
                                 )
-
-                                page = "home"
                             }
                         )
                     }
@@ -734,6 +890,7 @@ fun DollarAccountingApp(
 
                         PaymentPage(
                             people = people,
+                            payments = payments,
 
                             onSave = {
                                     person,
@@ -745,17 +902,67 @@ fun DollarAccountingApp(
                                 payments.add(
                                     Payment(
                                         id = time,
-                                        personId = person.id,
-                                        amount = amount,
-                                        createdAt = time
+                                        personId =
+                                            person.id,
+                                        amount =
+                                            amount,
+                                        createdAt =
+                                            time
                                     )
                                 )
 
                                 storage.savePayments(
                                     payments
                                 )
+                            }
+                        )
+                    }
 
-                                page = "home"
+                    "products" -> {
+
+                        ProductsPage(
+                            products = products,
+                            purchases = purchases,
+                            sales = sales,
+                            storage = storage,
+
+                            onProductClick = {
+
+                                selectedProductId =
+                                    it
+
+                                page =
+                                    "productDetail"
+                            }
+                        )
+                    }
+
+                    "people" -> {
+
+                        PeoplePage(
+                            people = people,
+                            purchases = purchases,
+                            payments = payments,
+                            storage = storage
+                        )
+                    }
+
+                    "productDetail" -> {
+
+                        ProductDetailPage(
+                            product =
+                                products.find {
+                                    it.id ==
+                                        selectedProductId
+                                },
+
+                            people = people,
+                            purchases = purchases,
+                            sales = sales,
+
+                            onBack = {
+                                page =
+                                    "products"
                             }
                         )
                     }
@@ -765,10 +972,12 @@ fun DollarAccountingApp(
     }
 }
 
+/* -------------------- COMMON UI -------------------- */
+
 @Composable
 fun PageHeader(
     title: String,
-    subtitle: String? = null
+    subtitle: String = ""
 ) {
 
     Column(
@@ -781,18 +990,23 @@ fun PageHeader(
 
         Text(
             text = title,
+
             style =
                 MaterialTheme
                     .typography
                     .headlineMedium,
+
             fontWeight =
                 FontWeight.Black
         )
 
-        if (subtitle != null) {
+        if (
+            subtitle.isNotBlank()
+        ) {
 
             Text(
                 text = subtitle,
+
                 color =
                     MaterialTheme
                         .colorScheme
@@ -812,17 +1026,23 @@ fun MetricCard(
 
     Card(
         modifier = modifier,
+
         shape =
-            RoundedCornerShape(24.dp)
+            RoundedCornerShape(
+                22.dp
+            )
     ) {
 
         Column(
             modifier =
-                Modifier.padding(18.dp)
+                Modifier.padding(
+                    16.dp
+                )
         ) {
 
             Text(
                 title,
+
                 color =
                     MaterialTheme
                         .colorScheme
@@ -830,15 +1050,19 @@ fun MetricCard(
             )
 
             Spacer(
-                Modifier.height(6.dp)
+                Modifier.height(
+                    5.dp
+                )
             )
 
             Text(
                 value,
+
                 style =
                     MaterialTheme
                         .typography
-                        .headlineSmall,
+                        .titleLarge,
+
                 fontWeight =
                     FontWeight.Black
             )
@@ -853,18 +1077,56 @@ fun EmptyCard(
 
     Card(
         modifier =
-            Modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(20.dp)
+            Modifier.fillMaxWidth()
     ) {
 
         Text(
-            text = text,
+            text,
+
             modifier =
-                Modifier.padding(18.dp)
+                Modifier.padding(
+                    16.dp
+                )
         )
     }
 }
+
+@Composable
+fun NumberField(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit
+) {
+
+    OutlinedTextField(
+        value = value,
+
+        onValueChange =
+            onChange,
+
+        label = {
+            Text(label)
+        },
+
+        singleLine = true,
+
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType =
+                    KeyboardType.Decimal
+            ),
+
+        modifier =
+            Modifier.fillMaxWidth(),
+
+        shape =
+            RoundedCornerShape(
+                18.dp
+            )
+    )
+}
+
+/* -------------------- HOME -------------------- */
 
 @Composable
 fun HomePage(
@@ -875,30 +1137,23 @@ fun HomePage(
     sales: List<Sale>
 ) {
 
-    val totalPurchases =
+    val totalBuy =
         purchases.sumOf {
             it.quantity *
                 it.unitPrice
         }
 
-    val totalSales =
+    val totalSale =
         sales.sumOf {
             it.quantity *
                 it.unitPrice
         }
 
-    val totalPayments =
-        payments.sumOf {
-            it.amount
-        }
-
-    val totalDebt =
-        totalPurchases -
-            totalPayments
-
     LazyColumn(
         verticalArrangement =
-            Arrangement.spacedBy(12.dp),
+            Arrangement.spacedBy(
+                10.dp
+            ),
 
         contentPadding =
             PaddingValues(
@@ -909,71 +1164,56 @@ fun HomePage(
         item {
 
             PageHeader(
-                title =
-                    "حسابداری دلاری",
-                subtitle =
-                    "خرید، فروش و موجودی"
+                "حسابداری دلاری",
+                "خرید، فروش و موجودی واقعی"
             )
         }
 
         item {
 
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
                 horizontalArrangement =
-                    Arrangement.spacedBy(10.dp)
+                    Arrangement.spacedBy(
+                        8.dp
+                    )
             ) {
 
                 MetricCard(
-                    title = "کل خرید",
-                    value =
-                        "$${
-                            money.format(
-                                totalPurchases
-                            )
-                        }",
-                    modifier =
-                        Modifier.weight(1f)
+                    "کل خرید",
+
+                    "$${
+                        money.format(
+                            totalBuy
+                        )
+                    }",
+
+                    Modifier.weight(1f)
                 )
 
                 MetricCard(
-                    title = "کل فروش",
-                    value =
-                        "$${
-                            money.format(
-                                totalSales
-                            )
-                        }",
-                    modifier =
-                        Modifier.weight(1f)
+                    "کل فروش",
+
+                    "$${
+                        money.format(
+                            totalSale
+                        )
+                    }",
+
+                    Modifier.weight(1f)
                 )
             }
         }
 
         item {
 
-            MetricCard(
-                title =
-                    "مانده بدهی تأمین‌کنندگان",
-
-                value =
-                    "$${
-                        money.format(
-                            totalDebt
-                        )
-                    }"
-            )
-        }
-
-        item {
-
             Text(
                 "موجودی کالاها",
+
                 style =
                     MaterialTheme
                         .typography
                         .titleLarge,
+
                 fontWeight =
                     FontWeight.Bold
             )
@@ -997,45 +1237,38 @@ fun HomePage(
                 }
             ) { product ->
 
-                val quantity =
-                    productQuantity(
+                val inventory =
+                    calculateInventory(
                         product.id,
                         purchases,
                         sales
                     )
 
-                val average =
-                    productAverage(
-                        product.id,
-                        purchases
-                    )
-
                 Card(
                     modifier =
                         Modifier.fillMaxWidth(),
+
                     shape =
-                        RoundedCornerShape(22.dp)
+                        RoundedCornerShape(
+                            20.dp
+                        )
                 ) {
 
                     Row(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(
+                                    16.dp
+                                ),
 
                         horizontalArrangement =
-                            Arrangement.SpaceBetween,
-
-                        verticalAlignment =
-                            Alignment.CenterVertically
+                            Arrangement
+                                .SpaceBetween
                     ) {
 
                         Text(
-                            "میانگین خرید\n$${
-                                money.format(
-                                    average
-                                )
-                            }"
+                            "میانگین $${money.format(inventory.average)}"
                         )
 
                         Column(
@@ -1045,12 +1278,14 @@ fun HomePage(
 
                             Text(
                                 product.name,
+
                                 fontWeight =
                                     FontWeight.Bold
                             )
 
                             Text(
-                                "موجودی: $quantity عدد",
+                                "موجودی: ${inventory.quantity} عدد",
+
                                 color =
                                     MaterialTheme
                                         .colorScheme
@@ -1062,16 +1297,15 @@ fun HomePage(
             }
         }
 
-        if (people.isNotEmpty()) {
+        if (
+            people.isNotEmpty()
+        ) {
 
             item {
 
                 Text(
-                    "مانده اشخاص",
-                    style =
-                        MaterialTheme
-                            .typography
-                            .titleLarge,
+                    "مانده تأمین‌کنندگان",
+
                     fontWeight =
                         FontWeight.Bold
                 )
@@ -1084,46 +1318,44 @@ fun HomePage(
                 }
             ) { person ->
 
-                Card(
+                Row(
                     modifier =
-                        Modifier.fillMaxWidth()
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                8.dp
+                            ),
+
+                    horizontalArrangement =
+                        Arrangement
+                            .SpaceBetween
                 ) {
 
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-
-                        horizontalArrangement =
-                            Arrangement.SpaceBetween
-                    ) {
-
-                        Text(
-                            "$${
-                                money.format(
-                                    personDebt(
-                                        person.id,
-                                        purchases,
-                                        payments
-                                    )
+                    Text(
+                        "$${
+                            money.format(
+                                personDebt(
+                                    person.id,
+                                    purchases,
+                                    payments
                                 )
-                            }",
-                            fontWeight =
-                                FontWeight.Black
-                        )
+                            )
+                        }",
 
-                        Text(
-                            person.fullName,
-                            fontWeight =
-                                FontWeight.Bold
-                        )
-                    }
+                        fontWeight =
+                            FontWeight.Bold
+                    )
+
+                    Text(
+                        person.fullName
+                    )
                 }
             }
         }
     }
 }
+
+/* -------------------- BUY -------------------- */
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -1141,11 +1373,11 @@ fun BuyPage(
         ) -> Unit
 ) {
 
-    var selectedPerson by remember {
+    var person by remember {
         mutableStateOf<Person?>(null)
     }
 
-    var selectedProduct by remember {
+    var product by remember {
         mutableStateOf<Product?>(null)
     }
 
@@ -1157,23 +1389,24 @@ fun BuyPage(
         mutableStateOf(false)
     }
 
-    var quantityText by remember {
+    var qty by remember {
         mutableStateOf("")
     }
 
-    var priceText by remember {
+    var price by remember {
         mutableStateOf("")
     }
 
     Column(
         verticalArrangement =
-            Arrangement.spacedBy(10.dp)
+            Arrangement.spacedBy(
+                10.dp
+            )
     ) {
 
         PageHeader(
-            title = "ثبت خرید",
-            subtitle =
-                "ورود کالا به انبار"
+            "ثبت خرید",
+            "ورود کالا به انبار"
         )
 
         if (
@@ -1200,8 +1433,7 @@ fun BuyPage(
 
             OutlinedTextField(
                 value =
-                    selectedPerson
-                        ?.fullName
+                    person?.fullName
                         ?: "",
 
                 onValueChange = {},
@@ -1229,21 +1461,17 @@ fun BuyPage(
                 }
             ) {
 
-                people.forEach {
-                        person ->
+                people.forEach { p ->
 
                     DropdownMenuItem(
                         text = {
                             Text(
-                                person.fullName
+                                p.fullName
                             )
                         },
 
                         onClick = {
-
-                            selectedPerson =
-                                person
-
+                            person = p
                             personMenu =
                                 false
                         }
@@ -1264,8 +1492,7 @@ fun BuyPage(
 
             OutlinedTextField(
                 value =
-                    selectedProduct
-                        ?.name
+                    product?.name
                         ?: "",
 
                 onValueChange = {},
@@ -1287,25 +1514,22 @@ fun BuyPage(
                     productMenu,
 
                 onDismissRequest = {
-                    productMenu = false
+                    productMenu =
+                        false
                 }
             ) {
 
-                products.forEach {
-                        product ->
+                products.forEach { p ->
 
                     DropdownMenuItem(
                         text = {
                             Text(
-                                product.name
+                                p.name
                             )
                         },
 
                         onClick = {
-
-                            selectedProduct =
-                                product
-
+                            product = p
                             productMenu =
                                 false
                         }
@@ -1315,67 +1539,47 @@ fun BuyPage(
         }
 
         NumberField(
-            label = "تعداد",
-            value =
-                quantityText,
-
-            onChange = {
-                quantityText = it
-            }
-        )
+            "تعداد",
+            qty
+        ) {
+            qty = it
+        }
 
         NumberField(
-            label =
-                "قیمت خرید واحد دلار",
+            "قیمت خرید واحد دلار",
+            price
+        ) {
+            price = it
+        }
 
-            value =
-                priceText,
+        val q =
+            qty.toIntOrNull()
 
-            onChange = {
-                priceText = it
-            }
-        )
-
-        val quantity =
-            quantityText
-                .toIntOrNull()
-
-        val price =
-            priceText
-                .toDoubleOrNull()
+        val p =
+            price.toDoubleOrNull()
 
         if (
-            quantity != null &&
-            price != null
+            q != null &&
+            p != null
         ) {
 
             MetricCard(
-                title = "جمع خرید",
+                "جمع خرید",
 
-                value =
-                    "$${
-                        money.format(
-                            quantity *
-                                price
-                        )
-                    }"
+                "$${
+                    money.format(
+                        q * p
+                    )
+                }"
             )
         }
 
         Button(
             onClick = {
 
-                val q =
-                    quantityText
-                        .toIntOrNull()
-
-                val p =
-                    priceText
-                        .toDoubleOrNull()
-
                 if (
-                    selectedPerson != null &&
-                    selectedProduct != null &&
+                    person != null &&
+                    product != null &&
                     q != null &&
                     q > 0 &&
                     p != null &&
@@ -1383,8 +1587,8 @@ fun BuyPage(
                 ) {
 
                     onSave(
-                        selectedPerson!!,
-                        selectedProduct!!,
+                        person!!,
+                        product!!,
                         q,
                         p
                     )
@@ -1395,19 +1599,12 @@ fun BuyPage(
                 Modifier.fillMaxWidth()
         ) {
 
-            Icon(
-                Icons.Default.CheckCircle,
-                null
-            )
-
-            Spacer(
-                Modifier.width(8.dp)
-            )
-
             Text("ثبت خرید")
         }
     }
 }
+
+/* -------------------- SELL + REPORT -------------------- */
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -1430,24 +1627,24 @@ fun SellPage(
         mutableStateOf("")
     }
 
-    var selectedProduct by remember {
+    var product by remember {
         mutableStateOf<Product?>(null)
     }
 
-    var productMenu by remember {
+    var menu by remember {
         mutableStateOf(false)
     }
 
-    var quantityText by remember {
+    var qty by remember {
         mutableStateOf("")
     }
 
-    var priceText by remember {
+    var price by remember {
         mutableStateOf("")
     }
 
     val available =
-        selectedProduct?.let {
+        product?.let {
 
             productQuantity(
                 it.id,
@@ -1457,984 +1654,302 @@ fun SellPage(
 
         } ?: 0
 
-    val quantity =
-        quantityText.toIntOrNull()
+    val q =
+        qty.toIntOrNull()
 
-    val price =
-        priceText.toDoubleOrNull()
+    val p =
+        price.toDoubleOrNull()
 
     val tooMuch =
-        quantity != null &&
-            quantity > available
-
-    Column(
-        verticalArrangement =
-            Arrangement.spacedBy(10.dp)
-    ) {
-
-        PageHeader(
-            title = "ثبت فروش",
-            subtitle =
-                "خروج کالا از موجودی"
-        )
-
-        if (products.isEmpty()) {
-
-            EmptyCard(
-                "ابتدا حداقل یک کالا تعریف کنید"
-            )
-
-            return@Column
-        }
-
-        OutlinedTextField(
-            value = customer,
-
-            onValueChange = {
-                customer = it
-            },
-
-            label = {
-                Text("نام خریدار")
-            },
-
-            modifier =
-                Modifier.fillMaxWidth(),
-
-            singleLine = true,
-
-            shape =
-                RoundedCornerShape(18.dp)
-        )
-
-        ExposedDropdownMenuBox(
-            expanded =
-                productMenu,
-
-            onExpandedChange = {
-                productMenu =
-                    !productMenu
-            }
-        ) {
-
-            OutlinedTextField(
-                value =
-                    selectedProduct
-                        ?.name
-                        ?: "",
-
-                onValueChange = {},
-
-                readOnly = true,
-
-                label = {
-                    Text("کالا")
-                },
-
-                modifier =
-                    Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
-            )
-
-            ExposedDropdownMenu(
-                expanded =
-                    productMenu,
-
-                onDismissRequest = {
-                    productMenu = false
-                }
-            ) {
-
-                products.forEach {
-                        product ->
-
-                    val stock =
-                        productQuantity(
-                            product.id,
-                            purchases,
-                            sales
-                        )
-
-                    DropdownMenuItem(
-                        text = {
-
-                            Text(
-                                "${product.name} • موجودی $stock"
-                            )
-                        },
-
-                        onClick = {
-
-                            selectedProduct =
-                                product
-
-                            productMenu =
-                                false
-                        }
-                    )
-                }
-            }
-        }
-
-        MetricCard(
-            title =
-                "موجودی قابل فروش",
-
-            value =
-                "$available عدد"
-        )
-
-        NumberField(
-            label =
-                "تعداد فروش",
-
-            value =
-                quantityText,
-
-            onChange = {
-                quantityText = it
-            }
-        )
-
-        NumberField(
-            label =
-                "قیمت فروش واحد دلار",
-
-            value =
-                priceText,
-
-            onChange = {
-                priceText = it
-            }
-        )
-
-        if (tooMuch) {
-
-            Text(
-                "تعداد فروش از موجودی بیشتر است.",
-                color =
-                    MaterialTheme
-                        .colorScheme
-                        .error,
-                fontWeight =
-                    FontWeight.Bold
-            )
-        }
-
-        if (
-            quantity != null &&
-            price != null
-        ) {
-
-            MetricCard(
-                title = "جمع فروش",
-
-                value =
-                    "$${
-                        money.format(
-                            quantity *
-                                price
-                        )
-                    }"
-            )
-        }
-
-        Button(
-            onClick = {
-
-                if (
-                    customer.isNotBlank() &&
-                    selectedProduct != null &&
-                    quantity != null &&
-                    quantity > 0 &&
-                    quantity <= available &&
-                    price != null &&
-                    price >= 0
-                ) {
-
-                    onSave(
-                        customer.trim(),
-                        selectedProduct!!,
-                        quantity,
-                        price
-                    )
-                }
-            },
-
-            enabled =
-                !tooMuch,
-
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
-
-            Icon(
-                Icons.Default.PointOfSale,
-                null
-            )
-
-            Spacer(
-                Modifier.width(8.dp)
-            )
-
-            Text("ثبت فروش")
-        }
-    }
-}
-
-@OptIn(
-    ExperimentalMaterial3Api::class
-)
-@Composable
-fun PaymentPage(
-    people: List<Person>,
-    onSave:
-        (
-            Person,
-            Double
-        ) -> Unit
-) {
-
-    var selectedPerson by remember {
-        mutableStateOf<Person?>(null)
-    }
-
-    var personMenu by remember {
-        mutableStateOf(false)
-    }
-
-    var amountText by remember {
-        mutableStateOf("")
-    }
-
-    Column(
-        verticalArrangement =
-            Arrangement.spacedBy(10.dp)
-    ) {
-
-        PageHeader(
-            title =
-                "ثبت پرداخت",
-            subtitle =
-                "پرداخت به تأمین‌کننده"
-        )
-
-        if (people.isEmpty()) {
-
-            EmptyCard(
-                "ابتدا شخص مورد نظر را تعریف کنید"
-            )
-
-            return@Column
-        }
-
-        ExposedDropdownMenuBox(
-            expanded =
-                personMenu,
-
-            onExpandedChange = {
-                personMenu =
-                    !personMenu
-            }
-        ) {
-
-            OutlinedTextField(
-                value =
-                    selectedPerson
-                        ?.fullName
-                        ?: "",
-
-                onValueChange = {},
-
-                readOnly = true,
-
-                label = {
-                    Text(
-                        "تأمین‌کننده"
-                    )
-                },
-
-                modifier =
-                    Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
-            )
-
-            ExposedDropdownMenu(
-                expanded =
-                    personMenu,
-
-                onDismissRequest = {
-                    personMenu = false
-                }
-            ) {
-
-                people.forEach {
-                        person ->
-
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                person.fullName
-                            )
-                        },
-
-                        onClick = {
-
-                            selectedPerson =
-                                person
-
-                            personMenu =
-                                false
-                        }
-                    )
-                }
-            }
-        }
-
-        NumberField(
-            label =
-                "مبلغ پرداختی دلار",
-
-            value =
-                amountText,
-
-            onChange = {
-                amountText = it
-            }
-        )
-
-        Button(
-            onClick = {
-
-                val amount =
-                    amountText
-                        .toDoubleOrNull()
-
-                if (
-                    selectedPerson != null &&
-                    amount != null &&
-                    amount > 0
-                ) {
-
-                    onSave(
-                        selectedPerson!!,
-                        amount
-                    )
-                }
-            },
-
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
-
-            Icon(
-                Icons.Default.Payments,
-                null
-            )
-
-            Spacer(
-                Modifier.width(8.dp)
-            )
-
-            Text("ثبت پرداخت")
-        }
-    }
-}
-
-@Composable
-fun ProductsPage(
-    products: MutableList<Product>,
-    purchases: List<Purchase>,
-    sales: List<Sale>,
-    storage: AppStorage,
-    onProductClick: (Long) -> Unit
-) {
-
-    var productName by remember {
-        mutableStateOf("")
-    }
-
-    Column(
-        verticalArrangement =
-            Arrangement.spacedBy(10.dp)
-    ) {
-
-        PageHeader(
-            title = "کالاها",
-            subtitle =
-                "موجودی واقعی"
-        )
-
-        Row(
-            modifier =
-                Modifier.fillMaxWidth(),
-
-            horizontalArrangement =
-                Arrangement.spacedBy(8.dp),
-
-            verticalAlignment =
-                Alignment.CenterVertically
-        ) {
-
-            OutlinedTextField(
-                value =
-                    productName,
-
-                onValueChange = {
-                    productName = it
-                },
-
-                label = {
-                    Text(
-                        "نام کالای جدید"
-                    )
-                },
-
-                singleLine = true,
-
-                modifier =
-                    Modifier.weight(1f)
-            )
-
-            IconButton(
-                onClick = {
-
-                    val name =
-                        productName.trim()
-
-                    if (
-                        name.isNotBlank() &&
-                        products.none {
-                            it.name.equals(
-                                name,
-                                true
-                            )
-                        }
-                    ) {
-
-                        products.add(
-                            Product(
-                                id =
-                                    System.currentTimeMillis(),
-
-                                name = name
-                            )
-                        )
-
-                        storage.saveProducts(
-                            products
-                        )
-
-                        productName = ""
-                    }
-                }
-            ) {
-
-                Icon(
-                    Icons.Default.Add,
-                    null
-                )
-            }
-        }
-
-        if (products.isEmpty()) {
-
-            EmptyCard(
-                "هنوز کالایی تعریف نشده"
-            )
-
-        } else {
-
-            LazyColumn(
-                modifier =
-                    Modifier.weight(1f),
-
-                verticalArrangement =
-                    Arrangement.spacedBy(8.dp)
-            ) {
-
-                items(
-                    products,
-                    key = {
-                        it.id
-                    }
-                ) { product ->
-
-                    val quantity =
-                        productQuantity(
-                            product.id,
-                            purchases,
-                            sales
-                        )
-
-                    val average =
-                        productAverage(
-                            product.id,
-                            purchases
-                        )
-
-                    Card(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-
-                                    onProductClick(
-                                        product.id
-                                    )
-                                },
-
-                        shape =
-                            RoundedCornerShape(
-                                22.dp
-                            )
-                    ) {
-
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        16.dp
-                                    ),
-
-                            horizontalArrangement =
-                                Arrangement.SpaceBetween,
-
-                            verticalAlignment =
-                                Alignment.CenterVertically
-                        ) {
-
-                            Icon(
-                                Icons.Default.ChevronLeft,
-                                null
-                            )
-
-                            Column(
-                                horizontalAlignment =
-                                    Alignment.End
-                            ) {
-
-                                Text(
-                                    product.name,
-                                    fontWeight =
-                                        FontWeight.Bold
-                                )
-
-                                Text(
-                                    "موجودی $quantity" +
-                                        " • میانگین خرید $" +
-                                        money.format(
-                                            average
-                                        )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PeoplePage(
-    people: MutableList<Person>,
-    purchases: List<Purchase>,
-    payments: List<Payment>,
-    storage: AppStorage
-) {
-
-    var firstName by remember {
-        mutableStateOf("")
-    }
-
-    var lastName by remember {
-        mutableStateOf("")
-    }
-
-    Column(
-        verticalArrangement =
-            Arrangement.spacedBy(10.dp)
-    ) {
-
-        PageHeader(
-            title = "اشخاص",
-            subtitle =
-                "تأمین‌کنندگان و مانده بدهی"
-        )
-
-        Row(
-            modifier =
-                Modifier.fillMaxWidth(),
-
-            horizontalArrangement =
-                Arrangement.spacedBy(6.dp),
-
-            verticalAlignment =
-                Alignment.CenterVertically
-        ) {
-
-            OutlinedTextField(
-                value =
-                    firstName,
-
-                onValueChange = {
-                    firstName = it
-                },
-
-                label = {
-                    Text("نام")
-                },
-
-                singleLine = true,
-
-                modifier =
-                    Modifier.weight(1f)
-            )
-
-            OutlinedTextField(
-                value =
-                    lastName,
-
-                onValueChange = {
-                    lastName = it
-                },
-
-                label = {
-                    Text("فامیل")
-                },
-
-                singleLine = true,
-
-                modifier =
-                    Modifier.weight(1f)
-            )
-
-            IconButton(
-                onClick = {
-
-                    if (
-                        firstName.isNotBlank() ||
-                        lastName.isNotBlank()
-                    ) {
-
-                        people.add(
-                            Person(
-                                id =
-                                    System.currentTimeMillis(),
-
-                                firstName =
-                                    firstName.trim(),
-
-                                lastName =
-                                    lastName.trim()
-                            )
-                        )
-
-                        storage.savePeople(
-                            people
-                        )
-
-                        firstName = ""
-                        lastName = ""
-                    }
-                }
-            ) {
-
-                Icon(
-                    Icons.Default.PersonAdd,
-                    null
-                )
-            }
-        }
-
-        LazyColumn(
-            modifier =
-                Modifier.weight(1f),
-
-            verticalArrangement =
-                Arrangement.spacedBy(8.dp)
-        ) {
-
-            items(
-                people,
-                key = {
-                    it.id
-                }
-            ) { person ->
-
-                val debt =
-                    personDebt(
-                        person.id,
-                        purchases,
-                        payments
-                    )
-
-                Card(
-                    modifier =
-                        Modifier.fillMaxWidth()
-                ) {
-
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-
-                        horizontalArrangement =
-                            Arrangement.SpaceBetween,
-
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
-
-                        Column {
-
-                            Text(
-                                "$${
-                                    money.format(
-                                        debt
-                                    )
-                                }",
-                                fontWeight =
-                                    FontWeight.Black
-                            )
-
-                            Text(
-                                "مانده بدهی",
-                                style =
-                                    MaterialTheme
-                                        .typography
-                                        .bodySmall
-                            )
-                        }
-
-                        Text(
-                            person.fullName,
-                            fontWeight =
-                                FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ProductDetailPage(
-    product: Product?,
-    people: List<Person>,
-    purchases: List<Purchase>,
-    sales: List<Sale>,
-    onBack: () -> Unit
-) {
-
-    if (product == null) {
-
-        EmptyCard(
-            "کالا پیدا نشد"
-        )
-
-        return
-    }
-
-    data class ProductHistory(
-        val id: String,
-        val time: Long,
-        val title: String,
-        val info: String,
-        val type: String
-    )
-
-    val history =
-
-        purchases
-            .filter {
-                it.productId ==
-                    product.id
-            }
-            .map { purchase ->
-
-                val person =
-                    people.find {
-                        it.id ==
-                            purchase.personId
-                    }
-
-                ProductHistory(
-                    id =
-                        "buy_${purchase.id}",
-
-                    time =
-                        purchase.createdAt,
-
-                    title =
-                        "خرید از ${
-                            person?.fullName
-                                ?: "شخص نامشخص"
-                        }",
-
-                    info =
-                        "${purchase.quantity} عدد × " +
-                            "$${
-                                money.format(
-                                    purchase.unitPrice
-                                )
-                            }",
-
-                    type = "buy"
-                )
-            } +
-
-            sales
-                .filter {
-                    it.productId ==
-                        product.id
-                }
-                .map { sale ->
-
-                    ProductHistory(
-                        id =
-                            "sale_${sale.id}",
-
-                        time =
-                            sale.createdAt,
-
-                        title =
-                            "فروش به ${sale.customer}",
-
-                        info =
-                            "${sale.quantity} عدد × " +
-                                "$${
-                                    money.format(
-                                        sale.unitPrice
-                                    )
-                                }",
-
-                        type = "sale"
-                    )
-                }
-
-    val sortedHistory =
-        history.sortedByDescending {
-            it.time
-        }
+        q != null &&
+            q > available
 
     LazyColumn(
         verticalArrangement =
-            Arrangement.spacedBy(10.dp),
+            Arrangement.spacedBy(
+                10.dp
+            ),
 
         contentPadding =
             PaddingValues(
-                bottom = 16.dp
+                bottom = 20.dp
             )
     ) {
 
         item {
 
-            IconButton(
-                onClick = onBack
-            ) {
-
-                Icon(
-                    Icons.Default.ArrowBack,
-                    null
-                )
-            }
-
             PageHeader(
-                title =
-                    product.name,
-
-                subtitle =
-                    "تاریخچه ورود و خروج"
-            )
-        }
-
-        item {
-
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
-
-                horizontalArrangement =
-                    Arrangement.spacedBy(
-                        10.dp
-                    )
-            ) {
-
-                MetricCard(
-                    title = "موجودی",
-
-                    value =
-                        "${
-                            productQuantity(
-                                product.id,
-                                purchases,
-                                sales
-                            )
-                        } عدد",
-
-                    modifier =
-                        Modifier.weight(1f)
-                )
-
-                MetricCard(
-                    title =
-                        "میانگین خرید",
-
-                    value =
-                        "$${
-                            money.format(
-                                productAverage(
-                                    product.id,
-                                    purchases
-                                )
-                            )
-                        }",
-
-                    modifier =
-                        Modifier.weight(1f)
-                )
-            }
-        }
-
-        item {
-
-            Text(
-                "گردش کالا",
-                style =
-                    MaterialTheme
-                        .typography
-                        .titleLarge,
-                fontWeight =
-                    FontWeight.Bold
+                "ثبت فروش",
+                "خروج کالا از موجودی"
             )
         }
 
         if (
-            sortedHistory.isEmpty()
+            products.isEmpty()
         ) {
 
             item {
 
                 EmptyCard(
-                    "هنوز خرید یا فروشی برای این کالا ثبت نشده"
+                    "ابتدا کالا تعریف کنید"
+                )
+            }
+
+            return@LazyColumn
+        }
+
+        item {
+
+            OutlinedTextField(
+                value = customer,
+
+                onValueChange = {
+                    customer = it
+                },
+
+                label = {
+                    Text(
+                        "نام خریدار"
+                    )
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth(),
+
+                singleLine = true
+            )
+        }
+
+        item {
+
+            ExposedDropdownMenuBox(
+                expanded = menu,
+
+                onExpandedChange = {
+                    menu = !menu
+                }
+            ) {
+
+                OutlinedTextField(
+                    value =
+                        product?.name
+                            ?: "",
+
+                    onValueChange = {},
+
+                    readOnly = true,
+
+                    label = {
+                        Text("کالا")
+                    },
+
+                    modifier =
+                        Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = menu,
+
+                    onDismissRequest = {
+                        menu = false
+                    }
+                ) {
+
+                    products.forEach { x ->
+
+                        val stock =
+                            productQuantity(
+                                x.id,
+                                purchases,
+                                sales
+                            )
+
+                        DropdownMenuItem(
+                            text = {
+
+                                Text(
+                                    "${x.name} • موجودی $stock"
+                                )
+                            },
+
+                            onClick = {
+
+                                product = x
+                                menu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+
+            MetricCard(
+                "موجودی قابل فروش",
+                "$available عدد"
+            )
+        }
+
+        item {
+
+            NumberField(
+                "تعداد فروش",
+                qty
+            ) {
+                qty = it
+            }
+        }
+
+        item {
+
+            NumberField(
+                "قیمت فروش واحد دلار",
+                price
+            ) {
+                price = it
+            }
+        }
+
+        if (tooMuch) {
+
+            item {
+
+                Text(
+                    "تعداد فروش از موجودی بیشتر است.",
+
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .error,
+
+                    fontWeight =
+                        FontWeight.Bold
+                )
+            }
+        }
+
+        if (
+            q != null &&
+            p != null
+        ) {
+
+            item {
+
+                MetricCard(
+                    "جمع فروش",
+
+                    "$${
+                        money.format(
+                            q * p
+                        )
+                    }"
+                )
+            }
+        }
+
+        item {
+
+            Button(
+                onClick = {
+
+                    if (
+                        customer.isNotBlank() &&
+                        product != null &&
+                        q != null &&
+                        q > 0 &&
+                        q <= available &&
+                        p != null &&
+                        p >= 0
+                    ) {
+
+                        onSave(
+                            customer.trim(),
+                            product!!,
+                            q,
+                            p
+                        )
+
+                        customer = ""
+                        product = null
+                        qty = ""
+                        price = ""
+                    }
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth(),
+
+                enabled =
+                    !tooMuch
+            ) {
+
+                Icon(
+                    Icons.Default.PointOfSale,
+                    null
+                )
+
+                Spacer(
+                    Modifier.width(
+                        8.dp
+                    )
+                )
+
+                Text("ثبت فروش")
+            }
+        }
+
+        item {
+
+            Spacer(
+                Modifier.height(
+                    8.dp
+                )
+            )
+
+            Text(
+                "گزارش فروش‌ها",
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .titleLarge,
+
+                fontWeight =
+                    FontWeight.Black
+            )
+        }
+
+        if (
+            sales.isEmpty()
+        ) {
+
+            item {
+
+                EmptyCard(
+                    "هنوز فروشی ثبت نشده"
                 )
             }
 
         } else {
 
             items(
-                sortedHistory,
+                sales.sortedByDescending {
+                    it.createdAt
+                },
+
                 key = {
                     it.id
                 }
-            ) { historyItem ->
+            ) { sale ->
+
+                val soldProduct =
+                    products.find {
+                        it.id ==
+                            sale.productId
+                    }
 
                 Card(
                     modifier =
@@ -2458,53 +1973,33 @@ fun ProductDetailPage(
                             Alignment.End
                     ) {
 
-                        Row(
-                            verticalAlignment =
-                                Alignment.CenterVertically
-                        ) {
+                        Text(
+                            soldProduct?.name
+                                ?: "کالای نامشخص",
 
-                            Icon(
-                                if (
-                                    historyItem.type ==
-                                    "buy"
-                                ) {
-                                    Icons.Default
-                                        .ArrowDownward
-                                } else {
-                                    Icons.Default
-                                        .ArrowUpward
-                                },
-
-                                null
-                            )
-
-                            Spacer(
-                                Modifier.width(
-                                    8.dp
-                                )
-                            )
-
-                            Text(
-                                historyItem.title,
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-                        }
-
-                        Spacer(
-                            Modifier.height(
-                                6.dp
-                            )
+                            fontWeight =
+                                FontWeight.Black
                         )
 
                         Text(
-                            historyItem.info
+                            "خریدار: ${sale.customer}"
+                        )
+
+                        Text(
+                            "${sale.quantity} عدد × $${money.format(sale.unitPrice)}"
+                        )
+
+                        Text(
+                            "جمع: $${money.format(sale.quantity * sale.unitPrice)}",
+
+                            fontWeight =
+                                FontWeight.Bold
                         )
 
                         Text(
                             dateFormat.format(
                                 Date(
-                                    historyItem.time
+                                    sale.createdAt
                                 )
                             ),
 
@@ -2525,37 +2020,904 @@ fun ProductDetailPage(
     }
 }
 
+/* -------------------- PAYMENT + REPORT -------------------- */
+
+@OptIn(
+    ExperimentalMaterial3Api::class
+)
 @Composable
-fun NumberField(
-    label: String,
-    value: String,
-    onChange: (String) -> Unit
+fun PaymentPage(
+    people: List<Person>,
+    payments: List<Payment>,
+    onSave:
+        (
+            Person,
+            Double
+        ) -> Unit
 ) {
 
-    OutlinedTextField(
-        value = value,
+    var person by remember {
+        mutableStateOf<Person?>(null)
+    }
 
-        onValueChange =
-            onChange,
+    var menu by remember {
+        mutableStateOf(false)
+    }
 
-        label = {
-            Text(label)
-        },
+    var amount by remember {
+        mutableStateOf("")
+    }
 
-        modifier =
-            Modifier.fillMaxWidth(),
-
-        singleLine = true,
-
-        keyboardOptions =
-            KeyboardOptions(
-                keyboardType =
-                    KeyboardType.Decimal
+    LazyColumn(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
             ),
 
-        shape =
-            RoundedCornerShape(
-                18.dp
+        contentPadding =
+            PaddingValues(
+                bottom = 20.dp
             )
+    ) {
+
+        item {
+
+            PageHeader(
+                "ثبت پرداخت",
+                "پرداخت به تأمین‌کننده"
+            )
+        }
+
+        if (
+            people.isEmpty()
+        ) {
+
+            item {
+
+                EmptyCard(
+                    "ابتدا شخص تعریف کنید"
+                )
+            }
+
+            return@LazyColumn
+        }
+
+        item {
+
+            ExposedDropdownMenuBox(
+                expanded = menu,
+
+                onExpandedChange = {
+                    menu = !menu
+                }
+            ) {
+
+                OutlinedTextField(
+                    value =
+                        person?.fullName
+                            ?: "",
+
+                    onValueChange = {},
+
+                    readOnly = true,
+
+                    label = {
+                        Text(
+                            "تأمین‌کننده"
+                        )
+                    },
+
+                    modifier =
+                        Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = menu,
+
+                    onDismissRequest = {
+                        menu = false
+                    }
+                ) {
+
+                    people.forEach { x ->
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    x.fullName
+                                )
+                            },
+
+                            onClick = {
+
+                                person = x
+                                menu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+
+            NumberField(
+                "مبلغ پرداختی دلار",
+                amount
+            ) {
+                amount = it
+            }
+        }
+
+        item {
+
+            Button(
+                onClick = {
+
+                    val a =
+                        amount.toDoubleOrNull()
+
+                    if (
+                        person != null &&
+                        a != null &&
+                        a > 0
+                    ) {
+
+                        onSave(
+                            person!!,
+                            a
+                        )
+
+                        person = null
+                        amount = ""
+                    }
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            ) {
+
+                Icon(
+                    Icons.Default.Payments,
+                    null
+                )
+
+                Spacer(
+                    Modifier.width(
+                        8.dp
+                    )
+                )
+
+                Text(
+                    "ثبت پرداخت"
+                )
+            }
+        }
+
+        item {
+
+            Spacer(
+                Modifier.height(
+                    8.dp
+                )
+            )
+
+            Text(
+                "گزارش پرداخت‌ها",
+
+                style =
+                    MaterialTheme
+                        .typography
+                        .titleLarge,
+
+                fontWeight =
+                    FontWeight.Black
+            )
+        }
+
+        if (
+            payments.isEmpty()
+        ) {
+
+            item {
+
+                EmptyCard(
+                    "هنوز پرداختی ثبت نشده"
+                )
+            }
+
+        } else {
+
+            items(
+                payments.sortedByDescending {
+                    it.createdAt
+                },
+
+                key = {
+                    it.id
+                }
+            ) { payment ->
+
+                val paymentPerson =
+                    people.find {
+                        it.id ==
+                            payment.personId
+                    }
+
+                Card(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+
+                    shape =
+                        RoundedCornerShape(
+                            20.dp
+                        )
+                ) {
+
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    16.dp
+                                ),
+
+                        horizontalAlignment =
+                            Alignment.End
+                    ) {
+
+                        Text(
+                            paymentPerson
+                                ?.fullName
+                                ?: "شخص نامشخص",
+
+                            fontWeight =
+                                FontWeight.Black
+                        )
+
+                        Text(
+                            "پرداخت: $${money.format(payment.amount)}",
+
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+
+                        Text(
+                            dateFormat.format(
+                                Date(
+                                    payment.createdAt
+                                )
+                            ),
+
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* -------------------- PRODUCTS -------------------- */
+
+@Composable
+fun ProductsPage(
+    products: MutableList<Product>,
+    purchases: List<Purchase>,
+    sales: List<Sale>,
+    storage: AppStorage,
+    onProductClick:
+        (Long) -> Unit
+) {
+
+    var name by remember {
+        mutableStateOf("")
+    }
+
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            )
+    ) {
+
+        PageHeader(
+            "کالاها",
+            "موجودی و میانگین خرید"
+        )
+
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                ),
+
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            OutlinedTextField(
+                value = name,
+
+                onValueChange = {
+                    name = it
+                },
+
+                label = {
+                    Text(
+                        "نام کالای جدید"
+                    )
+                },
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
+            )
+
+            IconButton(
+                onClick = {
+
+                    val n =
+                        name.trim()
+
+                    if (
+                        n.isNotBlank() &&
+                        products.none {
+                            it.name.equals(
+                                n,
+                                true
+                            )
+                        }
+                    ) {
+
+                        products.add(
+                            Product(
+                                System.currentTimeMillis(),
+                                n
+                            )
+                        )
+
+                        storage.saveProducts(
+                            products
+                        )
+
+                        name = ""
+                    }
+                }
+            ) {
+
+                Icon(
+                    Icons.Default.Add,
+                    null
+                )
+            }
+        }
+
+        LazyColumn(
+            modifier =
+                Modifier.weight(1f),
+
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                )
+        ) {
+
+            items(
+                products,
+                key = {
+                    it.id
+                }
+            ) { product ->
+
+                val inventory =
+                    calculateInventory(
+                        product.id,
+                        purchases,
+                        sales
+                    )
+
+                Card(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+
+                                onProductClick(
+                                    product.id
+                                )
+                            },
+
+                    shape =
+                        RoundedCornerShape(
+                            20.dp
+                        )
+                ) {
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    16.dp
+                                ),
+
+                        horizontalArrangement =
+                            Arrangement
+                                .SpaceBetween,
+
+                        verticalAlignment =
+                            Alignment
+                                .CenterVertically
+                    ) {
+
+                        Icon(
+                            Icons.Default
+                                .ChevronLeft,
+                            null
+                        )
+
+                        Column(
+                            horizontalAlignment =
+                                Alignment.End
+                        ) {
+
+                            Text(
+                                product.name,
+
+                                fontWeight =
+                                    FontWeight.Bold
+                            )
+
+                            Text(
+                                "موجودی ${inventory.quantity} • میانگین خرید $${money.format(inventory.average)}"
+                            )
+
+                            Text(
+                                "ارزش موجودی $${money.format(inventory.value)}",
+
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .bodySmall,
+
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* -------------------- PEOPLE -------------------- */
+
+@Composable
+fun PeoplePage(
+    people: MutableList<Person>,
+    purchases: List<Purchase>,
+    payments: List<Payment>,
+    storage: AppStorage
+) {
+
+    var first by remember {
+        mutableStateOf("")
+    }
+
+    var last by remember {
+        mutableStateOf("")
+    }
+
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            )
+    ) {
+
+        PageHeader(
+            "اشخاص",
+            "مانده بدهی تأمین‌کنندگان"
+        )
+
+        Row(
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    6.dp
+                ),
+
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            OutlinedTextField(
+                value = first,
+
+                onValueChange = {
+                    first = it
+                },
+
+                label = {
+                    Text("نام")
+                },
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = last,
+
+                onValueChange = {
+                    last = it
+                },
+
+                label = {
+                    Text("فامیل")
+                },
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
+            )
+
+            IconButton(
+                onClick = {
+
+                    if (
+                        first.isNotBlank() ||
+                        last.isNotBlank()
+                    ) {
+
+                        people.add(
+                            Person(
+                                System.currentTimeMillis(),
+                                first.trim(),
+                                last.trim()
+                            )
+                        )
+
+                        storage.savePeople(
+                            people
+                        )
+
+                        first = ""
+                        last = ""
+                    }
+                }
+            ) {
+
+                Icon(
+                    Icons.Default.PersonAdd,
+                    null
+                )
+            }
+        }
+
+        LazyColumn(
+            modifier =
+                Modifier.weight(1f),
+
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                )
+        ) {
+
+            items(
+                people,
+                key = {
+                    it.id
+                }
+            ) { person ->
+
+                Card(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                ) {
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    16.dp
+                                ),
+
+                        horizontalArrangement =
+                            Arrangement
+                                .SpaceBetween
+                    ) {
+
+                        Column {
+
+                            Text(
+                                "$${
+                                    money.format(
+                                        personDebt(
+                                            person.id,
+                                            purchases,
+                                            payments
+                                        )
+                                    )
+                                }",
+
+                                fontWeight =
+                                    FontWeight.Black
+                            )
+
+                            Text(
+                                "مانده بدهی"
+                            )
+                        }
+
+                        Text(
+                            person.fullName,
+
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* -------------------- PRODUCT HISTORY -------------------- */
+
+@Composable
+fun ProductDetailPage(
+    product: Product?,
+    people: List<Person>,
+    purchases: List<Purchase>,
+    sales: List<Sale>,
+    onBack: () -> Unit
+) {
+
+    if (product == null) {
+
+        EmptyCard(
+            "کالا پیدا نشد"
+        )
+
+        return
+    }
+
+    data class History(
+        val id: String,
+        val time: Long,
+        val title: String,
+        val info: String
     )
+
+    val history =
+
+        purchases
+            .filter {
+                it.productId ==
+                    product.id
+            }
+            .map {
+
+                History(
+                    id =
+                        "buy_${it.id}",
+
+                    time =
+                        it.createdAt,
+
+                    title =
+                        "خرید از ${
+                            people.find { person ->
+                                person.id ==
+                                    it.personId
+                            }?.fullName
+                                ?: "نامشخص"
+                        }",
+
+                    info =
+                        "${it.quantity} عدد × $${money.format(it.unitPrice)}"
+                )
+            } +
+
+            sales
+                .filter {
+                    it.productId ==
+                        product.id
+                }
+                .map {
+
+                    History(
+                        id =
+                            "sale_${it.id}",
+
+                        time =
+                            it.createdAt,
+
+                        title =
+                            "فروش به ${it.customer}",
+
+                        info =
+                            "${it.quantity} عدد × $${money.format(it.unitPrice)}"
+                    )
+                }
+
+    val inventory =
+        calculateInventory(
+            product.id,
+            purchases,
+            sales
+        )
+
+    LazyColumn(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+
+        contentPadding =
+            PaddingValues(
+                bottom = 16.dp
+            )
+    ) {
+
+        item {
+
+            IconButton(
+                onClick = onBack
+            ) {
+
+                Icon(
+                    Icons.Default.ArrowBack,
+                    null
+                )
+            }
+
+            PageHeader(
+                product.name,
+                "تاریخچه ورود و خروج"
+            )
+        }
+
+        item {
+
+            Row(
+                horizontalArrangement =
+                    Arrangement.spacedBy(
+                        8.dp
+                    )
+            ) {
+
+                MetricCard(
+                    "موجودی",
+
+                    "${inventory.quantity} عدد",
+
+                    Modifier.weight(1f)
+                )
+
+                MetricCard(
+                    "میانگین خرید",
+
+                    "$${
+                        money.format(
+                            inventory.average
+                        )
+                    }",
+
+                    Modifier.weight(1f)
+                )
+            }
+        }
+
+        item {
+
+            MetricCard(
+                "ارزش موجودی فعلی",
+
+                "$${
+                    money.format(
+                        inventory.value
+                    )
+                }"
+            )
+        }
+
+        if (
+            history.isEmpty()
+        ) {
+
+            item {
+
+                EmptyCard(
+                    "هنوز خرید یا فروشی ثبت نشده"
+                )
+            }
+
+        } else {
+
+            items(
+                history.sortedByDescending {
+                    it.time
+                },
+
+                key = {
+                    it.id
+                }
+            ) { h ->
+
+                Card(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+
+                    shape =
+                        RoundedCornerShape(
+                            20.dp
+                        )
+                ) {
+
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    16.dp
+                                ),
+
+                        horizontalAlignment =
+                            Alignment.End
+                    ) {
+
+                        Text(
+                            h.title,
+
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+
+                        Text(
+                            h.info
+                        )
+
+                        Text(
+                            dateFormat.format(
+                                Date(
+                                    h.time
+                                )
+                            ),
+
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodySmall,
+
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
