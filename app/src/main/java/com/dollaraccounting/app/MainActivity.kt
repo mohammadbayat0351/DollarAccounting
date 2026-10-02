@@ -1,5 +1,6 @@
 package com.dollaraccounting.app
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,38 +21,152 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme()
-            ) {
-                DollarAccountingApp()
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                DollarAccountingApp(this)
             }
         }
     }
 }
 
+data class Person(
+    val id: Long,
+    val firstName: String,
+    val lastName: String
+) {
+    val fullName: String
+        get() = "$firstName $lastName".trim()
+}
+
 data class Product(
+    val id: Long,
     val name: String,
-    var quantity: Int,
-    var averagePrice: Double
+    var quantity: Int = 0,
+    var averagePrice: Double = 0.0
 )
 
-data class Supplier(
-    val name: String,
-    var purchases: Double,
-    var payments: Double
+data class SupplierAccount(
+    val personId: Long,
+    var purchases: Double = 0.0,
+    var payments: Double = 0.0
 )
 
-val dollarFormat = DecimalFormat("#,##0.00")
+private val dollarFormat = DecimalFormat("#,##0.00")
 
-@Composable
-fun DollarAccountingApp() {
+class AppStorage(context: Context) {
 
-    val products = remember {
-        mutableStateListOf<Product>()
+    private val prefs =
+        context.getSharedPreferences(
+            "dollar_accounting",
+            Context.MODE_PRIVATE
+        )
+
+    fun savePeople(people: List<Person>) {
+        val text = people.joinToString(";;") {
+            "${it.id}|${clean(it.firstName)}|${clean(it.lastName)}"
+        }
+        prefs.edit().putString("people", text).apply()
     }
 
-    val suppliers = remember {
-        mutableStateListOf<Supplier>()
+    fun loadPeople(): List<Person> {
+        val text = prefs.getString("people", "") ?: ""
+
+        if (text.isBlank()) return emptyList()
+
+        return text.split(";;").mapNotNull { row ->
+            val p = row.split("|")
+            if (p.size < 3) return@mapNotNull null
+
+            Person(
+                id = p[0].toLongOrNull() ?: return@mapNotNull null,
+                firstName = p[1],
+                lastName = p[2]
+            )
+        }
+    }
+
+    fun saveProducts(products: List<Product>) {
+        val text = products.joinToString(";;") {
+            "${it.id}|${clean(it.name)}|${it.quantity}|${it.averagePrice}"
+        }
+        prefs.edit().putString("products", text).apply()
+    }
+
+    fun loadProducts(): List<Product> {
+        val text = prefs.getString("products", "") ?: ""
+
+        if (text.isBlank()) return emptyList()
+
+        return text.split(";;").mapNotNull { row ->
+            val p = row.split("|")
+            if (p.size < 4) return@mapNotNull null
+
+            Product(
+                id = p[0].toLongOrNull() ?: return@mapNotNull null,
+                name = p[1],
+                quantity = p[2].toIntOrNull() ?: 0,
+                averagePrice = p[3].toDoubleOrNull() ?: 0.0
+            )
+        }
+    }
+
+    fun saveAccounts(accounts: List<SupplierAccount>) {
+        val text = accounts.joinToString(";;") {
+            "${it.personId}|${it.purchases}|${it.payments}"
+        }
+        prefs.edit().putString("accounts", text).apply()
+    }
+
+    fun loadAccounts(): List<SupplierAccount> {
+        val text = prefs.getString("accounts", "") ?: ""
+
+        if (text.isBlank()) return emptyList()
+
+        return text.split(";;").mapNotNull { row ->
+            val p = row.split("|")
+            if (p.size < 3) return@mapNotNull null
+
+            SupplierAccount(
+                personId =
+                    p[0].toLongOrNull()
+                        ?: return@mapNotNull null,
+                purchases =
+                    p[1].toDoubleOrNull() ?: 0.0,
+                payments =
+                    p[2].toDoubleOrNull() ?: 0.0
+            )
+        }
+    }
+
+    private fun clean(value: String): String {
+        return value
+            .replace("|", " ")
+            .replace(";;", " ")
+    }
+}
+
+@Composable
+fun DollarAccountingApp(context: Context) {
+
+    val storage = remember {
+        AppStorage(context)
+    }
+
+    val people = remember {
+        mutableStateListOf<Person>().apply {
+            addAll(storage.loadPeople())
+        }
+    }
+
+    val products = remember {
+        mutableStateListOf<Product>().apply {
+            addAll(storage.loadProducts())
+        }
+    }
+
+    val accounts = remember {
+        mutableStateListOf<SupplierAccount>().apply {
+            addAll(storage.loadAccounts())
+        }
     }
 
     var page by remember {
@@ -91,114 +206,182 @@ fun DollarAccountingApp() {
                 )
 
                 NavigationBarItem(
-                    selected = page == "suppliers",
-                    onClick = { page = "suppliers" },
+                    selected = page == "people",
+                    onClick = { page = "people" },
                     icon = { Text("●") },
                     label = { Text("اشخاص") }
                 )
             }
         }
-    ) { innerPadding ->
+    ) { padding ->
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(padding)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement =
+                Arrangement.spacedBy(12.dp)
         ) {
 
             Text(
                 text = "حسابداری دلاری",
-                style = MaterialTheme.typography.headlineMedium,
+                style =
+                    MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold
             )
 
             when (page) {
 
-                "home" -> {
-                    Dashboard(
-                        products = products,
-                        suppliers = suppliers
-                    )
-                }
+                "home" -> HomePage(
+                    people = people,
+                    products = products,
+                    accounts = accounts
+                )
 
-                "buy" -> {
-                    BuyPage(
-                        products = products,
-                        suppliers = suppliers,
-                        onSaved = {
-                            page = "home"
-                        }
-                    )
-                }
+                "buy" -> BuyPage(
+                    people = people,
+                    products = products,
+                    accounts = accounts,
+                    storage = storage,
+                    onDone = {
+                        page = "home"
+                    }
+                )
 
-                "pay" -> {
-                    PayPage(
-                        suppliers = suppliers,
-                        onSaved = {
-                            page = "home"
-                        }
-                    )
-                }
+                "pay" -> PaymentPage(
+                    people = people,
+                    accounts = accounts,
+                    storage = storage,
+                    onDone = {
+                        page = "home"
+                    }
+                )
 
-                "products" -> {
-                    ProductList(products)
-                }
+                "products" -> ProductsPage(
+                    products = products,
+                    storage = storage
+                )
 
-                "suppliers" -> {
-                    SupplierList(suppliers)
-                }
+                "people" -> PeoplePage(
+                    people = people,
+                    storage = storage
+                )
             }
         }
     }
 }
 
 @Composable
-fun Dashboard(
+fun HomePage(
+    people: List<Person>,
     products: List<Product>,
-    suppliers: List<Supplier>
+    accounts: List<SupplierAccount>
 ) {
 
-    val totalPurchases = suppliers.sumOf {
-        it.purchases
-    }
+    val purchases =
+        accounts.sumOf { it.purchases }
 
-    val totalPayments = suppliers.sumOf {
-        it.payments
-    }
+    val payments =
+        accounts.sumOf { it.payments }
 
-    val totalDebt = totalPurchases - totalPayments
-
-    val totalStock = products.sumOf {
-        it.quantity
-    }
+    val debt =
+        purchases - payments
 
     Text(
-        text = "داشبورد",
+        "داشبورد",
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold
     )
 
     InfoCard(
-        title = "کل خرید",
-        value = "$" + dollarFormat.format(totalPurchases)
+        "کل خرید دلاری",
+        "$${dollarFormat.format(purchases)}"
     )
 
     InfoCard(
-        title = "کل پرداخت",
-        value = "$" + dollarFormat.format(totalPayments)
+        "کل پرداخت",
+        "$${dollarFormat.format(payments)}"
     )
 
     InfoCard(
-        title = "مانده بدهی",
-        value = "$" + dollarFormat.format(totalDebt)
+        "مانده بدهی",
+        "$${dollarFormat.format(debt)}"
     )
 
-    InfoCard(
-        title = "تعداد موجودی",
-        value = totalStock.toString()
+    Spacer(Modifier.height(4.dp))
+
+    Text(
+        "موجودی کالاها",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
     )
+
+    if (products.isEmpty()) {
+
+        Text("هنوز کالایی تعریف نشده است.")
+
+    } else {
+
+        products.forEach { product ->
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+
+                Column(
+                    Modifier.padding(14.dp)
+                ) {
+
+                    Text(
+                        product.name,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Text(
+                        "موجودی: ${product.quantity} عدد"
+                    )
+
+                    Text(
+                        "میانگین خرید: $" +
+                            dollarFormat.format(
+                                product.averagePrice
+                            )
+                    )
+                }
+            }
+        }
+    }
+
+    if (accounts.isNotEmpty()) {
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            "مانده تأمین‌کنندگان",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        accounts.forEach { account ->
+
+            val person =
+                people.find {
+                    it.id == account.personId
+                }
+
+            if (person != null) {
+
+                Text(
+                    "${person.fullName}: $" +
+                        dollarFormat.format(
+                            account.purchases -
+                                account.payments
+                        )
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -208,22 +391,23 @@ fun InfoCard(
 ) {
 
     Card(
-        modifier = Modifier.fillMaxWidth()
+        Modifier.fillMaxWidth()
     ) {
 
         Column(
-            modifier = Modifier.padding(16.dp)
+            Modifier.padding(16.dp)
         ) {
 
-            Text(text = title)
+            Text(title)
 
             Spacer(
-                modifier = Modifier.height(5.dp)
+                Modifier.height(4.dp)
             )
 
             Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
+                value,
+                style =
+                    MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -231,297 +415,229 @@ fun InfoCard(
 }
 
 @Composable
-fun BuyPage(
-    products: MutableList<Product>,
-    suppliers: MutableList<Supplier>,
-    onSaved: () -> Unit
+fun PeoplePage(
+    people: MutableList<Person>,
+    storage: AppStorage
 ) {
 
-    var supplierName by remember {
+    var showAdd by remember {
+        mutableStateOf(false)
+    }
+
+    var firstName by remember {
         mutableStateOf("")
+    }
+
+    var lastName by remember {
+        mutableStateOf("")
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.SpaceBetween
+    ) {
+
+        Text(
+            "اشخاص",
+            style =
+                MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Button(
+            onClick = {
+                showAdd = !showAdd
+            }
+        ) {
+            Text("+ افزودن شخص")
+        }
+    }
+
+    if (showAdd) {
+
+        OutlinedTextField(
+            value = firstName,
+            onValueChange = {
+                firstName = it
+            },
+            label = {
+                Text("نام")
+            },
+            modifier =
+                Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = lastName,
+            onValueChange = {
+                lastName = it
+            },
+            label = {
+                Text("نام خانوادگی")
+            },
+            modifier =
+                Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Button(
+            modifier =
+                Modifier.fillMaxWidth(),
+
+            onClick = {
+
+                if (
+                    firstName.isNotBlank() ||
+                    lastName.isNotBlank()
+                ) {
+
+                    people.add(
+                        Person(
+                            id =
+                                System.currentTimeMillis(),
+                            firstName =
+                                firstName.trim(),
+                            lastName =
+                                lastName.trim()
+                        )
+                    )
+
+                    storage.savePeople(people)
+
+                    firstName = ""
+                    lastName = ""
+                    showAdd = false
+                }
+            }
+        ) {
+            Text("ذخیره شخص")
+        }
+    }
+
+    if (people.isEmpty()) {
+
+        Text("هنوز شخصی تعریف نشده است.")
+
+    } else {
+
+        LazyColumn(
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp)
+        ) {
+
+            items(people) { person ->
+
+                Card(
+                    Modifier.fillMaxWidth()
+                ) {
+
+                    Text(
+                        text = person.fullName,
+                        modifier =
+                            Modifier.padding(16.dp),
+                        fontWeight =
+                            FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductsPage(
+    products: MutableList<Product>,
+    storage: AppStorage
+) {
+
+    var showAdd by remember {
+        mutableStateOf(false)
     }
 
     var productName by remember {
         mutableStateOf("")
     }
 
-    var quantityText by remember {
-        mutableStateOf("")
-    }
-
-    var priceText by remember {
-        mutableStateOf("")
-    }
-
-    Text(
-        text = "ثبت خرید دلاری",
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold
-    )
-
-    OutlinedTextField(
-        value = supplierName,
-        onValueChange = {
-            supplierName = it
-        },
-        label = {
-            Text("نام تأمین‌کننده")
-        },
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        singleLine = true
-    )
-
-    OutlinedTextField(
-        value = productName,
-        onValueChange = {
-            productName = it
-        },
-        label = {
-            Text("نام کالا")
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true
-    )
-
-    OutlinedTextField(
-        value = quantityText,
-        onValueChange = {
-            quantityText = it
-        },
-        label = {
-            Text("تعداد")
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number
-        )
-    )
-
-    OutlinedTextField(
-        value = priceText,
-        onValueChange = {
-            priceText = it
-        },
-        label = {
-            Text("قیمت واحد دلار")
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Decimal
-        )
-    )
-
-    val previewQuantity = quantityText.toIntOrNull()
-    val previewPrice = priceText.toDoubleOrNull()
-
-    if (
-        previewQuantity != null &&
-        previewPrice != null
+        horizontalArrangement =
+            Arrangement.SpaceBetween
     ) {
-
-        val total = previewQuantity * previewPrice
 
         Text(
-            text = "جمع خرید: $" +
-                dollarFormat.format(total)
+            "کالاها",
+            style =
+                MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
         )
-    }
 
-    Button(
-        onClick = {
-
-            val quantity =
-                quantityText.toIntOrNull()
-
-            val unitPrice =
-                priceText.toDoubleOrNull()
-
-            if (
-                supplierName.isNotBlank() &&
-                productName.isNotBlank() &&
-                quantity != null &&
-                quantity > 0 &&
-                unitPrice != null &&
-                unitPrice >= 0
-            ) {
-
-                var supplier =
-                    suppliers.find {
-                        it.name == supplierName.trim()
-                    }
-
-                if (supplier == null) {
-
-                    supplier = Supplier(
-                        name = supplierName.trim(),
-                        purchases = 0.0,
-                        payments = 0.0
-                    )
-
-                    suppliers.add(supplier)
-                }
-
-                var product =
-                    products.find {
-                        it.name == productName.trim()
-                    }
-
-                if (product == null) {
-
-                    product = Product(
-                        name = productName.trim(),
-                        quantity = 0,
-                        averagePrice = 0.0
-                    )
-
-                    products.add(product)
-                }
-
-                val oldQuantity =
-                    product.quantity
-
-                val oldAverage =
-                    product.averagePrice
-
-                val newQuantity =
-                    oldQuantity + quantity
-
-                val oldValue =
-                    oldQuantity * oldAverage
-
-                val newPurchaseValue =
-                    quantity * unitPrice
-
-                val newAverage =
-                    (oldValue + newPurchaseValue) /
-                        newQuantity.toDouble()
-
-                product.quantity =
-                    newQuantity
-
-                product.averagePrice =
-                    newAverage
-
-                supplier.purchases =
-                    supplier.purchases +
-                        newPurchaseValue
-
-                onSaved()
+        Button(
+            onClick = {
+                showAdd = !showAdd
             }
-        },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-
-        Text("ثبت خرید")
-    }
-}
-
-@Composable
-fun PayPage(
-    suppliers: MutableList<Supplier>,
-    onSaved: () -> Unit
-) {
-
-    var supplierName by remember {
-        mutableStateOf("")
+        ) {
+            Text("+ افزودن کالا")
+        }
     }
 
-    var amountText by remember {
-        mutableStateOf("")
-    }
+    if (showAdd) {
 
-    Text(
-        text = "ثبت پرداخت",
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold
-    )
-
-    OutlinedTextField(
-        value = supplierName,
-        onValueChange = {
-            supplierName = it
-        },
-        label = {
-            Text("نام تأمین‌کننده")
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true
-    )
-
-    OutlinedTextField(
-        value = amountText,
-        onValueChange = {
-            amountText = it
-        },
-        label = {
-            Text("مبلغ پرداختی دلار")
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Decimal
+        OutlinedTextField(
+            value = productName,
+            onValueChange = {
+                productName = it
+            },
+            label = {
+                Text("نام کالا")
+            },
+            modifier =
+                Modifier.fillMaxWidth(),
+            singleLine = true
         )
-    )
 
-    Button(
-        onClick = {
+        Button(
+            modifier =
+                Modifier.fillMaxWidth(),
 
-            val amount =
-                amountText.toDoubleOrNull()
+            onClick = {
 
-            if (
-                supplierName.isNotBlank() &&
-                amount != null &&
-                amount > 0
-            ) {
+                val name =
+                    productName.trim()
 
-                var supplier =
-                    suppliers.find {
-                        it.name == supplierName.trim()
+                if (
+                    name.isNotBlank() &&
+                    products.none {
+                        it.name.equals(
+                            name,
+                            ignoreCase = true
+                        )
                     }
+                ) {
 
-                if (supplier == null) {
-
-                    supplier = Supplier(
-                        name = supplierName.trim(),
-                        purchases = 0.0,
-                        payments = 0.0
+                    products.add(
+                        Product(
+                            id =
+                                System.currentTimeMillis(),
+                            name = name
+                        )
                     )
 
-                    suppliers.add(supplier)
+                    storage.saveProducts(products)
+
+                    productName = ""
+                    showAdd = false
                 }
-
-                supplier.payments =
-                    supplier.payments + amount
-
-                onSaved()
             }
-        },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-
-        Text("ثبت پرداخت")
+        ) {
+            Text("ذخیره کالا")
+        }
     }
-}
-
-@Composable
-fun ProductList(
-    products: List<Product>
-) {
-
-    Text(
-        text = "کالاها و موجودی",
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold
-    )
 
     if (products.isEmpty()) {
 
-        Text(
-            text = "هنوز کالایی ثبت نشده."
-        )
+        Text("هنوز کالایی تعریف نشده است.")
 
     } else {
 
@@ -533,29 +649,25 @@ fun ProductList(
             items(products) { product ->
 
                 Card(
-                    modifier =
-                        Modifier.fillMaxWidth()
+                    Modifier.fillMaxWidth()
                 ) {
 
                     Column(
-                        modifier =
-                            Modifier.padding(16.dp)
+                        Modifier.padding(16.dp)
                     ) {
 
                         Text(
-                            text = product.name,
+                            product.name,
                             fontWeight =
                                 FontWeight.Bold
                         )
 
                         Text(
-                            text =
-                                "موجودی: ${product.quantity}"
+                            "موجودی: ${product.quantity}"
                         )
 
                         Text(
-                            text =
-                                "میانگین خرید: $" +
+                            "میانگین خرید: $" +
                                 dollarFormat.format(
                                     product.averagePrice
                                 )
@@ -567,80 +679,468 @@ fun ProductList(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SupplierList(
-    suppliers: List<Supplier>
+fun BuyPage(
+    people: List<Person>,
+    products: MutableList<Product>,
+    accounts: MutableList<SupplierAccount>,
+    storage: AppStorage,
+    onDone: () -> Unit
 ) {
 
+    var selectedPerson by remember {
+        mutableStateOf<Person?>(null)
+    }
+
+    var selectedProduct by remember {
+        mutableStateOf<Product?>(null)
+    }
+
+    var personMenu by remember {
+        mutableStateOf(false)
+    }
+
+    var productMenu by remember {
+        mutableStateOf(false)
+    }
+
+    var quantityText by remember {
+        mutableStateOf("")
+    }
+
+    var priceText by remember {
+        mutableStateOf("")
+    }
+
     Text(
-        text = "حساب تأمین‌کنندگان",
+        "ثبت خرید",
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold
     )
 
-    if (suppliers.isEmpty()) {
+    if (people.isEmpty()) {
 
         Text(
-            text = "هنوز شخصی ثبت نشده."
+            "ابتدا از قسمت اشخاص، تأمین‌کننده را تعریف کنید."
         )
 
-    } else {
+        return
+    }
 
-        LazyColumn(
-            verticalArrangement =
-                Arrangement.spacedBy(8.dp)
+    if (products.isEmpty()) {
+
+        Text(
+            "ابتدا از قسمت کالاها، کالا را تعریف کنید."
+        )
+
+        return
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = personMenu,
+        onExpandedChange = {
+            personMenu = !personMenu
+        }
+    ) {
+
+        OutlinedTextField(
+            value =
+                selectedPerson?.fullName ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = {
+                Text("تأمین‌کننده")
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults
+                    .TrailingIcon(
+                        expanded =
+                            personMenu
+                    )
+            },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+
+        ExposedDropdownMenu(
+            expanded = personMenu,
+            onDismissRequest = {
+                personMenu = false
+            }
         ) {
 
-            items(suppliers) { supplier ->
+            people.forEach { person ->
 
-                val debt =
-                    supplier.purchases -
-                        supplier.payments
-
-                Card(
-                    modifier =
-                        Modifier.fillMaxWidth()
-                ) {
-
-                    Column(
-                        modifier =
-                            Modifier.padding(16.dp)
-                    ) {
-
-                        Text(
-                            text = supplier.name,
-                            fontWeight =
-                                FontWeight.Bold
-                        )
-
-                        Text(
-                            text =
-                                "کل خرید: $" +
-                                dollarFormat.format(
-                                    supplier.purchases
-                                )
-                        )
-
-                        Text(
-                            text =
-                                "کل پرداخت: $" +
-                                dollarFormat.format(
-                                    supplier.payments
-                                )
-                        )
-
-                        Text(
-                            text =
-                                "مانده: $" +
-                                dollarFormat.format(
-                                    debt
-                                ),
-                            fontWeight =
-                                FontWeight.Bold
-                        )
+                DropdownMenuItem(
+                    text = {
+                        Text(person.fullName)
+                    },
+                    onClick = {
+                        selectedPerson =
+                            person
+                        personMenu = false
                     }
-                }
+                )
             }
         }
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = productMenu,
+        onExpandedChange = {
+            productMenu =
+                !productMenu
+        }
+    ) {
+
+        OutlinedTextField(
+            value =
+                selectedProduct?.name ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = {
+                Text("کالا")
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults
+                    .TrailingIcon(
+                        expanded =
+                            productMenu
+                    )
+            },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+
+        ExposedDropdownMenu(
+            expanded = productMenu,
+            onDismissRequest = {
+                productMenu = false
+            }
+        ) {
+
+            products.forEach { product ->
+
+                DropdownMenuItem(
+                    text = {
+                        Text(product.name)
+                    },
+                    onClick = {
+                        selectedProduct =
+                            product
+                        productMenu = false
+                    }
+                )
+            }
+        }
+    }
+
+    OutlinedTextField(
+        value = quantityText,
+        onValueChange = {
+            quantityText = it
+        },
+        label = {
+            Text("تعداد")
+        },
+        modifier =
+            Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType =
+                    KeyboardType.Number
+            )
+    )
+
+    OutlinedTextField(
+        value = priceText,
+        onValueChange = {
+            priceText = it
+        },
+        label = {
+            Text("قیمت واحد دلار")
+        },
+        modifier =
+            Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType =
+                    KeyboardType.Decimal
+            )
+    )
+
+    val q =
+        quantityText.toIntOrNull()
+
+    val price =
+        priceText.toDoubleOrNull()
+
+    if (
+        q != null &&
+        price != null
+    ) {
+
+        Text(
+            "جمع خرید: $" +
+                dollarFormat.format(
+                    q * price
+                )
+        )
+    }
+
+    Button(
+        modifier =
+            Modifier.fillMaxWidth(),
+
+        onClick = {
+
+            val person =
+                selectedPerson
+
+            val product =
+                selectedProduct
+
+            val quantity =
+                quantityText.toIntOrNull()
+
+            val unitPrice =
+                priceText.toDoubleOrNull()
+
+            if (
+                person != null &&
+                product != null &&
+                quantity != null &&
+                quantity > 0 &&
+                unitPrice != null &&
+                unitPrice >= 0
+            ) {
+
+                val oldQuantity =
+                    product.quantity
+
+                val oldAverage =
+                    product.averagePrice
+
+                val newQuantity =
+                    oldQuantity + quantity
+
+                val oldValue =
+                    oldQuantity *
+                        oldAverage
+
+                val purchaseValue =
+                    quantity *
+                        unitPrice
+
+                product.averagePrice =
+                    (
+                        oldValue +
+                            purchaseValue
+                    ) /
+                    newQuantity.toDouble()
+
+                product.quantity =
+                    newQuantity
+
+                var account =
+                    accounts.find {
+                        it.personId ==
+                            person.id
+                    }
+
+                if (account == null) {
+
+                    account =
+                        SupplierAccount(
+                            personId =
+                                person.id
+                        )
+
+                    accounts.add(
+                        account
+                    )
+                }
+
+                account.purchases +=
+                    purchaseValue
+
+                storage.saveProducts(
+                    products
+                )
+
+                storage.saveAccounts(
+                    accounts
+                )
+
+                onDone()
+            }
+        }
+    ) {
+
+        Text("ثبت خرید")
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PaymentPage(
+    people: List<Person>,
+    accounts: MutableList<SupplierAccount>,
+    storage: AppStorage,
+    onDone: () -> Unit
+) {
+
+    var selectedPerson by remember {
+        mutableStateOf<Person?>(null)
+    }
+
+    var personMenu by remember {
+        mutableStateOf(false)
+    }
+
+    var amountText by remember {
+        mutableStateOf("")
+    }
+
+    Text(
+        "ثبت پرداخت",
+        style =
+            MaterialTheme.typography.titleLarge,
+        fontWeight =
+            FontWeight.Bold
+    )
+
+    if (people.isEmpty()) {
+
+        Text(
+            "ابتدا شخص مورد نظر را در قسمت اشخاص تعریف کنید."
+        )
+
+        return
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = personMenu,
+        onExpandedChange = {
+            personMenu = !personMenu
+        }
+    ) {
+
+        OutlinedTextField(
+            value =
+                selectedPerson?.fullName ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = {
+                Text("تأمین‌کننده")
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults
+                    .TrailingIcon(
+                        expanded =
+                            personMenu
+                    )
+            },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+
+        ExposedDropdownMenu(
+            expanded = personMenu,
+            onDismissRequest = {
+                personMenu = false
+            }
+        ) {
+
+            people.forEach { person ->
+
+                DropdownMenuItem(
+                    text = {
+                        Text(person.fullName)
+                    },
+                    onClick = {
+                        selectedPerson =
+                            person
+                        personMenu = false
+                    }
+                )
+            }
+        }
+    }
+
+    OutlinedTextField(
+        value = amountText,
+        onValueChange = {
+            amountText = it
+        },
+        label = {
+            Text("مبلغ پرداختی دلار")
+        },
+        modifier =
+            Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType =
+                    KeyboardType.Decimal
+            )
+    )
+
+    Button(
+        modifier =
+            Modifier.fillMaxWidth(),
+
+        onClick = {
+
+            val person =
+                selectedPerson
+
+            val amount =
+                amountText.toDoubleOrNull()
+
+            if (
+                person != null &&
+                amount != null &&
+                amount > 0
+            ) {
+
+                var account =
+                    accounts.find {
+                        it.personId ==
+                            person.id
+                    }
+
+                if (account == null) {
+
+                    account =
+                        SupplierAccount(
+                            personId =
+                                person.id
+                        )
+
+                    accounts.add(
+                        account
+                    )
+                }
+
+                account.payments +=
+                    amount
+
+                storage.saveAccounts(
+                    accounts
+                )
+
+                onDone()
+            }
+        }
+    ) {
+
+        Text("ثبت پرداخت")
     }
 }
