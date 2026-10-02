@@ -31,17 +31,17 @@ class MainActivity : ComponentActivity() {
 
 data class Product(
     val name: String,
-    var quantity: Int = 0,
-    var averagePrice: Double = 0.0
+    var quantity: Int,
+    var averagePrice: Double
 )
 
 data class Supplier(
     val name: String,
-    var totalPurchases: Double = 0.0,
-    var totalPayments: Double = 0.0
+    var purchases: Double,
+    var payments: Double
 )
 
-private val moneyFormat = DecimalFormat("#,##0.00")
+val dollarFormat = DecimalFormat("#,##0.00")
 
 @Composable
 fun DollarAccountingApp() {
@@ -54,58 +54,58 @@ fun DollarAccountingApp() {
         mutableStateListOf<Supplier>()
     }
 
-    var currentPage by remember {
-        mutableStateOf("خانه")
+    var page by remember {
+        mutableStateOf("home")
     }
 
     Scaffold(
-
         bottomBar = {
-
             NavigationBar {
 
-                listOf(
-                    "خانه",
-                    "خرید",
-                    "پرداخت",
-                    "کالاها",
-                    "اشخاص"
-                ).forEach { page ->
+                NavigationBarItem(
+                    selected = page == "home",
+                    onClick = { page = "home" },
+                    icon = { Text("⌂") },
+                    label = { Text("خانه") }
+                )
 
-                    NavigationBarItem(
-                        selected = currentPage == page,
+                NavigationBarItem(
+                    selected = page == "buy",
+                    onClick = { page = "buy" },
+                    icon = { Text("+") },
+                    label = { Text("خرید") }
+                )
 
-                        onClick = {
-                            currentPage = page
-                        },
+                NavigationBarItem(
+                    selected = page == "pay",
+                    onClick = { page = "pay" },
+                    icon = { Text("$") },
+                    label = { Text("پرداخت") }
+                )
 
-                        icon = {
-                            Text(
-                                if (currentPage == page)
-                                    "●"
-                                else
-                                    "○"
-                            )
-                        },
+                NavigationBarItem(
+                    selected = page == "products",
+                    onClick = { page = "products" },
+                    icon = { Text("□") },
+                    label = { Text("کالاها") }
+                )
 
-                        label = {
-                            Text(page)
-                        }
-                    )
-                }
+                NavigationBarItem(
+                    selected = page == "suppliers",
+                    onClick = { page = "suppliers" },
+                    icon = { Text("●") },
+                    label = { Text("اشخاص") }
+                )
             }
         }
-
-    ) { padding ->
+    ) { innerPadding ->
 
         Column(
             modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
-
-            verticalArrangement =
-                Arrangement.spacedBy(12.dp)
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
 
             Text(
@@ -114,35 +114,41 @@ fun DollarAccountingApp() {
                 fontWeight = FontWeight.Bold
             )
 
-            when (currentPage) {
+            when (page) {
 
-                "خانه" -> Dashboard(
-                    products = products,
-                    suppliers = suppliers
-                )
+                "home" -> {
+                    Dashboard(
+                        products = products,
+                        suppliers = suppliers
+                    )
+                }
 
-                "خرید" -> PurchaseForm(
-                    products = products,
-                    suppliers = suppliers,
-                    onDone = {
-                        currentPage = "خانه"
-                    }
-                )
+                "buy" -> {
+                    BuyPage(
+                        products = products,
+                        suppliers = suppliers,
+                        onSaved = {
+                            page = "home"
+                        }
+                    )
+                }
 
-                "پرداخت" -> PaymentForm(
-                    suppliers = suppliers,
-                    onDone = {
-                        currentPage = "خانه"
-                    }
-                )
+                "pay" -> {
+                    PayPage(
+                        suppliers = suppliers,
+                        onSaved = {
+                            page = "home"
+                        }
+                    )
+                }
 
-                "کالاها" -> ProductsPage(
-                    products
-                )
+                "products" -> {
+                    ProductList(products)
+                }
 
-                "اشخاص" -> SuppliersPage(
-                    suppliers
-                )
+                "suppliers" -> {
+                    SupplierList(suppliers)
+                }
             }
         }
     }
@@ -154,53 +160,49 @@ fun Dashboard(
     suppliers: List<Supplier>
 ) {
 
-    val totalPurchases =
-        suppliers.sumOf {
-            it.totalPurchases
-        }
+    val totalPurchases = suppliers.sumOf {
+        it.purchases
+    }
 
-    val totalPayments =
-        suppliers.sumOf {
-            it.totalPayments
-        }
+    val totalPayments = suppliers.sumOf {
+        it.payments
+    }
 
-    val balance =
-        totalPurchases - totalPayments
+    val totalDebt = totalPurchases - totalPayments
 
-    val stock =
-        products.sumOf {
-            it.quantity
-        }
+    val totalStock = products.sumOf {
+        it.quantity
+    }
 
     Text(
-        "داشبورد",
-        style = MaterialTheme.typography.headlineSmall,
+        text = "داشبورد",
+        style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold
     )
 
-    DashboardCard(
-        "کل خرید دلاری",
-        "$" + moneyFormat.format(totalPurchases)
+    InfoCard(
+        title = "کل خرید",
+        value = "$" + dollarFormat.format(totalPurchases)
     )
 
-    DashboardCard(
-        "کل پرداخت",
-        "$" + moneyFormat.format(totalPayments)
+    InfoCard(
+        title = "کل پرداخت",
+        value = "$" + dollarFormat.format(totalPayments)
     )
 
-    DashboardCard(
-        "مانده بدهی",
-        "$" + moneyFormat.format(balance)
+    InfoCard(
+        title = "مانده بدهی",
+        value = "$" + dollarFormat.format(totalDebt)
     )
 
-    DashboardCard(
-        "تعداد موجودی",
-        stock.toString()
+    InfoCard(
+        title = "تعداد موجودی",
+        value = totalStock.toString()
     )
 }
 
 @Composable
-fun DashboardCard(
+fun InfoCard(
     title: String,
     value: String
 ) {
@@ -210,32 +212,29 @@ fun DashboardCard(
     ) {
 
         Column(
-            modifier = Modifier.padding(18.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
 
-            Text(title)
+            Text(text = title)
 
             Spacer(
-                modifier =
-                    Modifier.height(6.dp)
+                modifier = Modifier.height(5.dp)
             )
 
             Text(
-                value,
-                style =
-                    MaterialTheme.typography.headlineSmall,
-                fontWeight =
-                    FontWeight.Bold
+                text = value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
         }
     }
 }
 
 @Composable
-fun PurchaseForm(
+fun BuyPage(
     products: MutableList<Product>,
     suppliers: MutableList<Supplier>,
-    onDone: () -> Unit
+    onSaved: () -> Unit
 ) {
 
     var supplierName by remember {
@@ -246,141 +245,402 @@ fun PurchaseForm(
         mutableStateOf("")
     }
 
-    var quantity by remember {
+    var quantityText by remember {
         mutableStateOf("")
     }
 
-    var unitPrice by remember {
+    var priceText by remember {
         mutableStateOf("")
     }
 
     Text(
-        "ثبت خرید جدید",
-        style =
-            MaterialTheme.typography.headlineSmall,
-        fontWeight =
-            FontWeight.Bold
+        text = "ثبت خرید دلاری",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
     )
 
-    TextFieldBox(
-        "نام تأمین‌کننده",
-        supplierName
-    ) {
-        supplierName = it
-    }
+    OutlinedTextField(
+        value = supplierName,
+        onValueChange = {
+            supplierName = it
+        },
+        label = {
+            Text("نام تأمین‌کننده")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true
+    )
 
-    TextFieldBox(
-        "نام کالا",
-        productName
-    ) {
-        productName = it
-    }
+    OutlinedTextField(
+        value = productName,
+        onValueChange = {
+            productName = it
+        },
+        label = {
+            Text("نام کالا")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true
+    )
 
-    NumberField(
-        "تعداد",
-        quantity
-    ) {
-        quantity = it
-    }
+    OutlinedTextField(
+        value = quantityText,
+        onValueChange = {
+            quantityText = it
+        },
+        label = {
+            Text("تعداد")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number
+        )
+    )
 
-    NumberField(
-        "قیمت واحد (دلار)",
-        unitPrice
-    ) {
-        unitPrice = it
-    }
+    OutlinedTextField(
+        value = priceText,
+        onValueChange = {
+            priceText = it
+        },
+        label = {
+            Text("قیمت واحد دلار")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Decimal
+        )
+    )
 
-    val qty =
-        quantity.toIntOrNull()
-
-    val price =
-        unitPrice.toDoubleOrNull()
+    val previewQuantity = quantityText.toIntOrNull()
+    val previewPrice = priceText.toDoubleOrNull()
 
     if (
-        qty != null &&
-        price != null
+        previewQuantity != null &&
+        previewPrice != null
     ) {
 
+        val total = previewQuantity * previewPrice
+
         Text(
-            "جمع خرید: $" +
-                    moneyFormat.format(
-                        qty * price
-                    )
+            text = "جمع خرید: $" +
+                dollarFormat.format(total)
         )
     }
 
     Button(
-        modifier =
-            Modifier.fillMaxWidth(),
-
         onClick = {
 
-            val q =
-                quantity.toIntOrNull()
+            val quantity =
+                quantityText.toIntOrNull()
 
-            val priceValue =
-                unitPrice.toDoubleOrNull()
+            val unitPrice =
+                priceText.toDoubleOrNull()
 
             if (
-                supplierName.isBlank() ||
-                productName.isBlank() ||
-                q == null ||
-                q <= 0 ||
-                priceValue == null ||
-                priceValue < 0
+                supplierName.isNotBlank() &&
+                productName.isNotBlank() &&
+                quantity != null &&
+                quantity > 0 &&
+                unitPrice != null &&
+                unitPrice >= 0
             ) {
-                return@Button
+
+                var supplier =
+                    suppliers.find {
+                        it.name == supplierName.trim()
+                    }
+
+                if (supplier == null) {
+
+                    supplier = Supplier(
+                        name = supplierName.trim(),
+                        purchases = 0.0,
+                        payments = 0.0
+                    )
+
+                    suppliers.add(supplier)
+                }
+
+                var product =
+                    products.find {
+                        it.name == productName.trim()
+                    }
+
+                if (product == null) {
+
+                    product = Product(
+                        name = productName.trim(),
+                        quantity = 0,
+                        averagePrice = 0.0
+                    )
+
+                    products.add(product)
+                }
+
+                val oldQuantity =
+                    product.quantity
+
+                val oldAverage =
+                    product.averagePrice
+
+                val newQuantity =
+                    oldQuantity + quantity
+
+                val oldValue =
+                    oldQuantity * oldAverage
+
+                val newPurchaseValue =
+                    quantity * unitPrice
+
+                val newAverage =
+                    (oldValue + newPurchaseValue) /
+                        newQuantity.toDouble()
+
+                product.quantity =
+                    newQuantity
+
+                product.averagePrice =
+                    newAverage
+
+                supplier.purchases =
+                    supplier.purchases +
+                        newPurchaseValue
+
+                onSaved()
             }
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
 
-            val supplier =
-                suppliers.find {
-                    it.name.trim()
-                        .equals(
-                            supplierName.trim(),
-                            ignoreCase = true
-                        )
-                }
-                    ?: Supplier(
-                        supplierName.trim()
-                    ).also {
-                        suppliers.add(it)
+        Text("ثبت خرید")
+    }
+}
+
+@Composable
+fun PayPage(
+    suppliers: MutableList<Supplier>,
+    onSaved: () -> Unit
+) {
+
+    var supplierName by remember {
+        mutableStateOf("")
+    }
+
+    var amountText by remember {
+        mutableStateOf("")
+    }
+
+    Text(
+        text = "ثبت پرداخت",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
+    )
+
+    OutlinedTextField(
+        value = supplierName,
+        onValueChange = {
+            supplierName = it
+        },
+        label = {
+            Text("نام تأمین‌کننده")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true
+    )
+
+    OutlinedTextField(
+        value = amountText,
+        onValueChange = {
+            amountText = it
+        },
+        label = {
+            Text("مبلغ پرداختی دلار")
+        },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Decimal
+        )
+    )
+
+    Button(
+        onClick = {
+
+            val amount =
+                amountText.toDoubleOrNull()
+
+            if (
+                supplierName.isNotBlank() &&
+                amount != null &&
+                amount > 0
+            ) {
+
+                var supplier =
+                    suppliers.find {
+                        it.name == supplierName.trim()
                     }
 
-            val product =
-                products.find {
-                    it.name.trim()
-                        .equals(
-                            productName.trim(),
-                            ignoreCase = true
-                        )
+                if (supplier == null) {
+
+                    supplier = Supplier(
+                        name = supplierName.trim(),
+                        purchases = 0.0,
+                        payments = 0.0
+                    )
+
+                    suppliers.add(supplier)
                 }
-                    ?: Product(
-                        productName.trim()
-                    ).also {
-                        products.add(it)
+
+                supplier.payments =
+                    supplier.payments + amount
+
+                onSaved()
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+
+        Text("ثبت پرداخت")
+    }
+}
+
+@Composable
+fun ProductList(
+    products: List<Product>
+) {
+
+    Text(
+        text = "کالاها و موجودی",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
+    )
+
+    if (products.isEmpty()) {
+
+        Text(
+            text = "هنوز کالایی ثبت نشده."
+        )
+
+    } else {
+
+        LazyColumn(
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp)
+        ) {
+
+            items(products) { product ->
+
+                Card(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                ) {
+
+                    Column(
+                        modifier =
+                            Modifier.padding(16.dp)
+                    ) {
+
+                        Text(
+                            text = product.name,
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+
+                        Text(
+                            text =
+                                "موجودی: ${product.quantity}"
+                        )
+
+                        Text(
+                            text =
+                                "میانگین خرید: $" +
+                                dollarFormat.format(
+                                    product.averagePrice
+                                )
+                        )
                     }
+                }
+            }
+        }
+    }
+}
 
-            val oldQuantity =
-                product.quantity
+@Composable
+fun SupplierList(
+    suppliers: List<Supplier>
+) {
 
-            val oldAverage =
-                product.averagePrice
+    Text(
+        text = "حساب تأمین‌کنندگان",
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
+    )
 
-            val newQuantity =
-                oldQuantity + q
+    if (suppliers.isEmpty()) {
 
-            /*
-             میانگین وزنی:
+        Text(
+            text = "هنوز شخصی ثبت نشده."
+        )
 
-             (موجودی قبلی × میانگین قبلی)
-             +
-             (تعداد خرید جدید × قیمت جدید)
+    } else {
 
-             تقسیم بر موجودی جدید
-            */
+        LazyColumn(
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp)
+        ) {
 
-            product.averagePrice =
-                if (newQuantity > 0) {
+            items(suppliers) { supplier ->
 
-                    (
-                        oldQuantity
+                val debt =
+                    supplier.purchases -
+                        supplier.payments
+
+                Card(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                ) {
+
+                    Column(
+                        modifier =
+                            Modifier.padding(16.dp)
+                    ) {
+
+                        Text(
+                            text = supplier.name,
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+
+                        Text(
+                            text =
+                                "کل خرید: $" +
+                                dollarFormat.format(
+                                    supplier.purchases
+                                )
+                        )
+
+                        Text(
+                            text =
+                                "کل پرداخت: $" +
+                                dollarFormat.format(
+                                    supplier.payments
+                                )
+                        )
+
+                        Text(
+                            text =
+                                "مانده: $" +
+                                dollarFormat.format(
+                                    debt
+                                ),
+                            fontWeight =
+                                FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
